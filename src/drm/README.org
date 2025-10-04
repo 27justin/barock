@@ -1,0 +1,22 @@
+#+TITLE: minidrm
+#+AUTHOR: Justin Andreas Lacoste
+
+**minidrm** is a C++ header-only library designed to simplify the
+Linux DRM API and streamlining the process to get a hardware
+accelerated environment without X11/Wayland.
+
+* Features
++ RAII-based wrappers for connectors, modes, CRTC's, cards, etc.
++ Simple way to get started with EGL
+
+* Getting Started
+1. Copy the ~minidrm.hpp~ file into your project.
+2. Create a dedicated implementation file, where you include it
+   alongside a ~#define MINIDRM_IMPLEMENTATION~
+3. Link against ~libdrm~
+
+To enable the hardware accelerated framebuffers, you have to:
+1. ~#define MINIDRM_EGL~ before including ~minidrm.hpp~, or pass
+   ~-DMINIDRM_EGL~ to your compiler flags.
+2. Additionally link your application against ~libgbm~, ~libGLESv2~,
+   and ~libEGL~

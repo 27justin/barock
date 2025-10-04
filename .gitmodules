@@ -1,0 +1,6 @@
+[submodule "wlroots"]
+	path = third_party/wlroots
+	url = https://gitlab.freedesktop.org/wlroots/wlroots
+[submodule "SDL"]
+	path = third_party/SDL
+	url = https://github.com/libsdl-org/SDL.git
