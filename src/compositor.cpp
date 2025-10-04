@@ -16,9 +16,9 @@ namespace barock {
     event_loop_ = wl_display_get_event_loop(display_);
 
     // Initialize protocols
-    xdg_shell = make_unique<xdg_shell_t>(*this);
+    xdg_shell     = make_unique<xdg_shell_t>(*this);
     wl_compositor = make_unique<wl_compositor_t>(display_);
-    shm = make_unique<shm_t>(display_);
+    shm           = make_unique<shm_t>(display_);
 
     // wl_event_source *source = wl_event_loop_add_timer(event_loop_, [](void *ud) {
     //   return static_cast<compositor_t *>(ud)->redraw();
@@ -47,4 +47,3 @@ namespace barock {
   }
 
 }
-

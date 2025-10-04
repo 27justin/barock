@@ -9,4 +9,3 @@ log_level
 get_log_filter() {
   return filter;
 }
-

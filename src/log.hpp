@@ -1,23 +1,25 @@
 #pragma once
 
-#include <string_view>
-#include <iostream>
 #include <cassert>
 #include <cstring>
+#include <iostream>
 #include <sstream>
+#include <string_view>
 
 // public enum & simple API declarations
 enum class log_level { trace = 1, info, warn, error, critical };
 
 inline log_level filter = static_cast<log_level>(0);
 
-void set_log_filter(log_level level);
-log_level get_log_filter();
+void
+set_log_filter(log_level level);
+log_level
+get_log_filter();
 
-constexpr const char ANSI_RESET[] = "\x1b[0m";
-constexpr const char ANSI_BOLD[] = "\x1b[1m";
-constexpr const char ANSI_DIM[] = "\x1b[2m";
-constexpr const char ANSI_ITALIC[] = "\x1b[3m";
+constexpr const char ANSI_RESET[]     = "\x1b[0m";
+constexpr const char ANSI_BOLD[]      = "\x1b[1m";
+constexpr const char ANSI_DIM[]       = "\x1b[2m";
+constexpr const char ANSI_ITALIC[]    = "\x1b[3m";
 constexpr const char ANSI_UNDERLINE[] = "\x1b[4m";
 
 constexpr const char *
@@ -83,21 +85,21 @@ compute_string_length(std::string_view str) {
 // Helper function to replace markers with ANSI codes
 inline std::string
 embed_ansi_codes(std::string str) {
-    auto replace_marker = [&](const std::string& marker, const char* ansi_code) {
-        size_t pos = 0;
-        bool open = true;
-        while ((pos = str.find(marker, pos)) != std::string::npos) {
-            str.replace(pos, marker.size(), open ? ansi_code : ANSI_RESET);
-            pos += std::strlen(open ? ansi_code : ANSI_RESET);
-            open = !open;
-        }
-    };
+  auto replace_marker = [&](const std::string &marker, const char *ansi_code) {
+    size_t pos  = 0;
+    bool   open = true;
+    while ((pos = str.find(marker, pos)) != std::string::npos) {
+      str.replace(pos, marker.size(), open ? ansi_code : ANSI_RESET);
+      pos += std::strlen(open ? ansi_code : ANSI_RESET);
+      open = !open;
+    }
+  };
 
-    replace_marker("**", ANSI_BOLD);
-    replace_marker("__", ANSI_UNDERLINE);
-    replace_marker("//", ANSI_ITALIC);
+  replace_marker("**", ANSI_BOLD);
+  replace_marker("__", ANSI_UNDERLINE);
+  replace_marker("//", ANSI_ITALIC);
 
-    return str;
+  return str;
 }
 
 template<log_level Level, typename... Args>
@@ -141,7 +143,6 @@ print_log(const char *format_view, Args &&...args) {
   } while (pos != std::string::npos);
 }
 
-
 template<typename FormatString, typename... Args>
 void
 TRACE(FormatString message, Args... args) {
@@ -171,4 +172,3 @@ void
 CRITICAL(FormatString message, Args... args) {
   print_log<log_level::critical, Args...>(message, std::forward<Args>(args)...);
 }
-

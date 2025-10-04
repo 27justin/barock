@@ -6,8 +6,8 @@ extern struct wl_shm_pool_interface wl_shm_pool_impl;
 
 namespace barock {
   class shm_t {
-  public:
-    wl_global *global;
+    public:
+    wl_global                *global;
     static constexpr uint32_t VERSION = 2;
 
     shm_t(wl_display *);

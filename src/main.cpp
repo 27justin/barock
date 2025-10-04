@@ -5,16 +5,16 @@
 
 #include <cstdlib>
 #include <fcntl.h>
-#include <unistd.h>
 #include <gbm.h>
 #include <iomanip>
 #include <thread>
+#include <unistd.h>
 
-#include "log.hpp"
 #include "barock/compositor.hpp"
+#include "barock/core/shm_pool.hpp"
 #include "barock/core/wl_compositor.hpp"
 #include "barock/core/wl_surface.hpp"
-#include "barock/core/shm_pool.hpp"
+#include "log.hpp"
 
 #include <wayland-server-core.h>
 #include <xf86drm.h>
@@ -23,21 +23,23 @@
 #define MINIDRM_IMPLEMENTATION
 #include "drm/minidrm.hpp"
 
-
-uint32_t current_time_msec() {
-    struct timespec ts;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    return ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+uint32_t
+current_time_msec() {
+  struct timespec ts;
+  clock_gettime(CLOCK_MONOTONIC, &ts);
+  return ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
 }
 
-#define GL_CHECK \
-  do { \
-  GLenum err = glGetError(); \
-  if (err != GL_NO_ERROR) {                                            \
-    ERROR("OpenGL Error ({}:{}): {}", __FILE__, __LINE__, err);printf("\n"); \
-    fflush(stdout);                                                 \
-    std::exit(0);                                                   \
-  }} while(0)
+#define GL_CHECK                                                                                   \
+  do {                                                                                             \
+    GLenum err = glGetError();                                                                     \
+    if (err != GL_NO_ERROR) {                                                                      \
+      ERROR("OpenGL Error ({}:{}): {}", __FILE__, __LINE__, err);                                  \
+      printf("\n");                                                                                \
+      fflush(stdout);                                                                              \
+      std::exit(0);                                                                                \
+    }                                                                                              \
+  } while (0)
 
 void
 check_opengl_error() {
@@ -49,48 +51,51 @@ check_opengl_error() {
 }
 
 // Simple helper: compile shader
-GLuint compile_shader(GLenum type, const char *source) {
-    GLuint shader = glCreateShader(type);
-    glShaderSource(shader, 1, &source, nullptr);
-    glCompileShader(shader);
+GLuint
+compile_shader(GLenum type, const char *source) {
+  GLuint shader = glCreateShader(type);
+  glShaderSource(shader, 1, &source, nullptr);
+  glCompileShader(shader);
 
-    GLint ok;
-    glGetShaderiv(shader, GL_COMPILE_STATUS, &ok);
-    if (!ok) {
-        char log[512];
-        glGetShaderInfoLog(shader, 512, nullptr, log);
-        std::cerr << "Shader compile error: " << log << "\n";
-    }
+  GLint ok;
+  glGetShaderiv(shader, GL_COMPILE_STATUS, &ok);
+  if (!ok) {
+    char log[512];
+    glGetShaderInfoLog(shader, 512, nullptr, log);
+    std::cerr << "Shader compile error: " << log << "\n";
+  }
 
-    return shader;
+  return shader;
 }
 
 // Simple helper: create program from vertex + fragment shader
-GLuint create_program(const char *vs_src, const char *fs_src) {
-    GLuint vs = compile_shader(GL_VERTEX_SHADER, vs_src);
-    GLuint fs = compile_shader(GL_FRAGMENT_SHADER, fs_src);
+GLuint
+create_program(const char *vs_src, const char *fs_src) {
+  GLuint vs = compile_shader(GL_VERTEX_SHADER, vs_src);
+  GLuint fs = compile_shader(GL_FRAGMENT_SHADER, fs_src);
 
-    GLuint program = glCreateProgram();
-    glAttachShader(program, vs);
-    glAttachShader(program, fs);
-    glLinkProgram(program);
+  GLuint program = glCreateProgram();
+  glAttachShader(program, vs);
+  glAttachShader(program, fs);
+  glLinkProgram(program);
 
-    GLint ok;
-    glGetProgramiv(program, GL_LINK_STATUS, &ok);
-    if (!ok) {
-        char log[512];
-        glGetProgramInfoLog(program, 512, nullptr, log);
-        ERROR("Program link error: {}", log);
-    }
+  GLint ok;
+  glGetProgramiv(program, GL_LINK_STATUS, &ok);
+  if (!ok) {
+    char log[512];
+    glGetProgramInfoLog(program, 512, nullptr, log);
+    ERROR("Program link error: {}", log);
+  }
 
-    glDeleteShader(vs);
-    glDeleteShader(fs);
-    return program;
+  glDeleteShader(vs);
+  glDeleteShader(fs);
+  return program;
 }
 
 // Call once during init
-GLuint init_quad_program() {
-    static const char *vs = R"(
+GLuint
+init_quad_program() {
+  static const char *vs = R"(
         attribute vec2 a_position;
         attribute vec2 a_texcoord;
         varying vec2 v_texcoord;
@@ -101,7 +106,7 @@ GLuint init_quad_program() {
         }
     )";
 
-    static const char *fs = R"(
+  static const char *fs = R"(
         precision mediump float;
         varying vec2 v_texcoord;
         uniform sampler2D u_texture;
@@ -113,43 +118,44 @@ GLuint init_quad_program() {
         }
     )";
 
-    return create_program(vs, fs);
+  return create_program(vs, fs);
 }
 
-void draw_quad(GLuint program, GLuint texture) {
-    glUseProgram(program);
+void
+draw_quad(GLuint program, GLuint texture) {
+  glUseProgram(program);
 
-    static const GLfloat vertices[] = {
-        // X     Y     U     V
-        -1.0f, -1.0f, 0.0f, 0.0f,  // bottom-left
-         1.0f, -1.0f, 1.0f, 0.0f,  // bottom-right
-        -1.0f,  1.0f, 0.0f, 1.0f,  // top-left
-         1.0f,  1.0f, 1.0f, 1.0f   // top-right
-    };
+  static const GLfloat vertices[] = {
+    // X     Y     U     V
+    -1.0f, -1.0f, 0.0f, 0.0f, // bottom-left
+    1.0f,  -1.0f, 1.0f, 0.0f, // bottom-right
+    -1.0f, 1.0f,  0.0f, 1.0f, // top-left
+    1.0f,  1.0f,  1.0f, 1.0f  // top-right
+  };
 
-    GLuint attr_pos = glGetAttribLocation(program, "a_position");
-    GLuint attr_tex = glGetAttribLocation(program, "a_texcoord");
-    GLuint u_tex    = glGetUniformLocation(program, "u_texture");
+  GLuint attr_pos = glGetAttribLocation(program, "a_position");
+  GLuint attr_tex = glGetAttribLocation(program, "a_texcoord");
+  GLuint u_tex    = glGetUniformLocation(program, "u_texture");
 
-    glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, texture);
-    glUniform1i(u_tex, 0); // texture unit 0
+  glActiveTexture(GL_TEXTURE0);
+  glBindTexture(GL_TEXTURE_2D, texture);
+  glUniform1i(u_tex, 0); // texture unit 0
 
-    glEnableVertexAttribArray(attr_pos);
-    glEnableVertexAttribArray(attr_tex);
+  glEnableVertexAttribArray(attr_pos);
+  glEnableVertexAttribArray(attr_tex);
 
-    glVertexAttribPointer(attr_pos, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(GLfloat), &vertices[0]);
-    glVertexAttribPointer(attr_tex, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(GLfloat), &vertices[2]);
+  glVertexAttribPointer(attr_pos, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(GLfloat), &vertices[0]);
+  glVertexAttribPointer(attr_tex, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(GLfloat), &vertices[2]);
 
-    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+  glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 
-    glDisableVertexAttribArray(attr_pos);
-    glDisableVertexAttribArray(attr_tex);
+  glDisableVertexAttribArray(attr_pos);
+  glDisableVertexAttribArray(attr_tex);
 }
-
 
 using namespace minidrm;
-int main() {
+int
+main() {
   INFO("Welcome to {}", "Barock!");
 
   barock::compositor_t compositor;
@@ -162,18 +168,19 @@ int main() {
   std::vector<std::unique_ptr<framebuffer::egl_t>> monitors;
 
   auto card = drm::cards()[0];
-  auto hdl = card.open();
+  auto hdl  = card.open();
 
   auto connectors = hdl.connectors();
 
   // Perform a mode set
   uint32_t taken_crtcs = 0;
   for (auto const &con : connectors) {
-    if (con.connection() != DRM_MODE_CONNECTED) continue;
+    if (con.connection() != DRM_MODE_CONNECTED)
+      continue;
     std::cout << "Connector " << con.type() << "\n";
 
     auto mode = con.modes()[0];
-    for(auto i = 0; i < con->count_encoders; ++i) {
+    for (auto i = 0; i < con->count_encoders; ++i) {
       drmModeEncoder *enc = drmModeGetEncoder(hdl.fd, con->encoders[i]);
       if (!enc)
         continue;
@@ -201,8 +208,8 @@ int main() {
     }
   }
 
-  auto quad_program = init_quad_program();
-  GLuint texture = 0;
+  auto   quad_program = init_quad_program();
+  GLuint texture      = 0;
   for (;;) {
     for (auto &screen : monitors) {
       auto front = screen->acquire();
@@ -213,10 +220,12 @@ int main() {
 
       // Iterate all surfaces...
       for (auto const surface : compositor.wl_compositor->surfaces) {
-        if (!surface->buffer) continue;
+        if (!surface->buffer)
+          continue;
 
         // INFO("Rendering surface...");
-        barock::shm_buffer_t *buffer = (barock::shm_buffer_t *) wl_resource_get_user_data(surface->buffer);
+        barock::shm_buffer_t *buffer =
+          (barock::shm_buffer_t *)wl_resource_get_user_data(surface->buffer);
 
         if (texture != 0) {
           glDeleteTextures(1, &texture);
@@ -235,21 +244,14 @@ int main() {
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
         GL_CHECK;
 
-        glTexImage2D(GL_TEXTURE_2D,
-                     0,
-                     GL_RGBA,
-                     buffer->width,
-                     buffer->height,
-                     0,
-                     GL_BGRA_EXT,
-                     GL_UNSIGNED_BYTE,
-                     buffer->data);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, buffer->width, buffer->height, 0, GL_BGRA_EXT,
+                     GL_UNSIGNED_BYTE, buffer->data);
         GL_CHECK;
 
         draw_quad(quad_program, texture);
         GL_CHECK;
 
-        if(surface->callback) {
+        if (surface->callback) {
           // Tell the client that the image was displayed.
           wl_callback_send_done(surface->callback, current_time_msec());
           wl_resource_destroy(surface->callback);
@@ -267,8 +269,6 @@ int main() {
     // itself processes client events, or when we do this:
     wl_display_flush_clients(compositor.display());
   }
-
-
 
   return 0;
 }
