@@ -65,6 +65,7 @@ compile_shader(GLenum type, const char *source) {
     char log[512];
     glGetShaderInfoLog(shader, 512, nullptr, log);
     std::cerr << "Shader compile error: " << log << "\n";
+    std::exit(1);
   }
 
   return shader;
@@ -87,10 +88,11 @@ create_program(const char *vs_src, const char *fs_src) {
     char log[512];
     glGetProgramInfoLog(program, 512, nullptr, log);
     ERROR("Program link error: {}", log);
+    std::exit(1);
   }
 
-  glDeleteShader(vs);
-  glDeleteShader(fs);
+  // glDeleteShader(vs);
+  // glDeleteShader(fs);
   return program;
 }
 
@@ -125,7 +127,11 @@ init_quad_program() {
 
 void
 draw_quad(GLuint program, GLuint texture) {
+  GL_CHECK;
+
+  INFO("Program: {}, texture: {}", program, texture);
   glUseProgram(program);
+  GL_CHECK;
 
   static const GLfloat vertices[] = {
     // X     Y     U     V
@@ -136,23 +142,36 @@ draw_quad(GLuint program, GLuint texture) {
   };
 
   GLuint attr_pos = glGetAttribLocation(program, "a_position");
+  GL_CHECK;
   GLuint attr_tex = glGetAttribLocation(program, "a_texcoord");
-  GLuint u_tex    = glGetUniformLocation(program, "u_texture");
+  GL_CHECK;
+  GLuint u_tex = glGetUniformLocation(program, "u_texture");
+  GL_CHECK;
 
   glActiveTexture(GL_TEXTURE0);
+  GL_CHECK;
   glBindTexture(GL_TEXTURE_2D, texture);
+  GL_CHECK;
   glUniform1i(u_tex, 0); // texture unit 0
+  GL_CHECK;
 
   glEnableVertexAttribArray(attr_pos);
+  GL_CHECK;
   glEnableVertexAttribArray(attr_tex);
+  GL_CHECK;
 
   glVertexAttribPointer(attr_pos, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(GLfloat), &vertices[0]);
+  GL_CHECK;
   glVertexAttribPointer(attr_tex, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(GLfloat), &vertices[2]);
+  GL_CHECK;
 
   glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+  GL_CHECK;
 
   glDisableVertexAttribArray(attr_pos);
+  GL_CHECK;
   glDisableVertexAttribArray(attr_tex);
+  GL_CHECK;
 }
 
 using namespace minidrm;
@@ -214,6 +233,7 @@ main() {
 
         auto &crtc = crtcs[i];
         INFO("{}\n  {}x{} @ {} Hz", con.type(), mode.width(), mode.height(), mode.refresh_rate());
+        INFO("Creating EGL framebuffer on {}", (void *)&hdl);
         auto &ref = monitors.emplace_back(new framebuffer::egl_t(hdl, con, crtc, mode, 2));
         ref->mode_set();
         break;
@@ -280,6 +300,7 @@ main() {
       }
 
       screen->present(front);
+      GL_CHECK;
     }
   }
 

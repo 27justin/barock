@@ -71,14 +71,31 @@ namespace minidrm {
       open() const;
     };
 
+    struct handle_data_t {
+#if defined(MINIDRM_EGL) || defined(MINIDRM_VULKAN)
+      gbm_device *gbm;
+#endif
+#if defined(MINIDRM_EGL)
+      struct {
+        EGLDisplay display;
+        EGLConfig  config;
+        EGLContext context;
+        bool       initialized = false;
+      } egl;
+#endif
+    };
+
     struct handle_t {
       public:
       card_t                  card;
       int                     fd;
       std::atomic<uintmax_t> *references;
 
-#if defined(MINIDRM_EGL) || defined(MINIDRM_VULKAN)
-      gbm_device *gbm;
+      handle_data_t *data;
+
+#if defined(MINIDRM_EGL)
+      void
+      init_egl();
 #endif
 
       std::vector<connector_t>
@@ -88,6 +105,9 @@ namespace minidrm {
 
       handle_t(const handle_t &handle);
       ~handle_t();
+
+      handle_data_t *
+      operator->();
 
       private:
       handle_t(const card_t &card);
@@ -178,16 +198,13 @@ namespace minidrm {
 
 #if defined(MINIDRM_EGL)
     struct egl_t {
-      drm::handle_t       drm;
-      drm::connector_t    connector;
-      drm::crtc_t         crtc;
-      drm::mode_t         mode;
-      struct gbm_surface *surface;
+      drm::handle_t    drm;
+      drm::connector_t connector;
+      drm::crtc_t      crtc;
+      drm::mode_t      mode;
 
-      EGLConfig  egl_config;
-      EGLContext egl_context;
-      EGLDisplay egl_display;
-      EGLSurface egl_surface;
+      struct gbm_surface *surface;
+      EGLSurface          egl_surface;
 
       struct egl_buffer_t {
         struct gbm_bo *bo;
@@ -199,7 +216,7 @@ namespace minidrm {
       egl_buffer_t                          *backbuffers;
       gbm_bo                                *last_bo;
 
-      egl_t(const drm::handle_t    &handle,
+      egl_t(drm::handle_t          &handle,
             const drm::connector_t &conn,
             const drm::crtc_t      &crtc,
             const drm::mode_t      &mode,
@@ -235,15 +252,29 @@ namespace minidrm {
         throw std::runtime_error("Failed to open DRM device.");
       }
 
+      data = new handle_data_t;
 #if defined(MINIDRM_EGL) || defined(MINIDRM_VULKAN)
-      gbm = gbm_create_device(fd);
+      data->gbm = gbm_create_device(fd);
+      printf("Creating GBM device... %p\n", data->gbm);
 #endif
+
+#if defined(MINIDRM_EGL)
+      data->egl.display = nullptr;
+      data->egl.context = nullptr;
+      data->egl.config  = nullptr;
+#endif
+    }
+
+    handle_data_t *
+    handle_t::operator->() {
+      return data;
     }
 
     handle_t::handle_t(const handle_t &other)
       : card(other.card)
       , fd(other.fd)
-      , references(other.references) {
+      , references(other.references)
+      , data(other.data) {
       // Increment the references
       (*references)++;
     }
@@ -252,10 +283,11 @@ namespace minidrm {
       // Close the DRI device when no-one has any reference anymore.
       if (--(*references) <= 0) {
 #if defined(MINIDRM_EGL) || defined(MINIDRM_VULKAN)
-        gbm_device_destroy(gbm);
+        gbm_device_destroy(data->gbm);
 #endif
         close(fd);
         delete references;
+        delete data;
       }
     }
 
@@ -405,6 +437,60 @@ namespace minidrm {
 
       return cards;
     }
+
+#if defined(MINIDRM_EGL)
+    void
+    handle_t::init_egl() {
+      if (data->egl.initialized)
+        return;
+
+      data->egl.display = eglGetDisplay(data->gbm);
+      if (data->egl.display == EGL_NO_DISPLAY) {
+        throw std::runtime_error("Failed to get EGL display");
+      }
+
+      if (!eglInitialize(data->egl.display, nullptr, nullptr)) {
+        throw std::runtime_error("Failed to initialize EGL");
+      }
+
+      if (!eglBindAPI(EGL_OPENGL_ES_API)) {
+        throw std::runtime_error("eglBindAPI failed");
+      }
+
+      // 4. Choose EGL config
+      const EGLint config_attribs[] = { EGL_SURFACE_TYPE, EGL_WINDOW_BIT,
+                                        // RGB
+                                        EGL_RED_SIZE, 8, EGL_GREEN_SIZE, 8, EGL_BLUE_SIZE, 8,
+                                        EGL_ALPHA_SIZE, 0, EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
+                                        EGL_NONE };
+
+      EGLint    matching_config;
+      EGLConfig configs[64];
+      EGLint    num_configs;
+      eglChooseConfig(data->egl.display, config_attribs, configs, 64, &num_configs);
+
+      bool found = false;
+      for (int i = 0; i < num_configs; ++i) {
+        EGLint id;
+        if (eglGetConfigAttrib(data->egl.display, configs[i], EGL_NATIVE_VISUAL_ID, &id)) {
+          if (id == GBM_FORMAT_XRGB8888) {
+            data->egl.config = configs[i];
+            found            = true;
+            break;
+          }
+        }
+      }
+
+      const EGLint ctx_attribs[] = { EGL_CONTEXT_CLIENT_VERSION, 2, EGL_NONE };
+      data->egl.context =
+        eglCreateContext(data->egl.display, data->egl.config, EGL_NO_CONTEXT, ctx_attribs);
+      if (data->egl.context == EGL_NO_CONTEXT) {
+        throw std::runtime_error("eglCreateContext failed");
+      }
+
+      data->egl.initialized = true;
+    }
+#endif
   } // namespace drm
 
   namespace framebuffer {
@@ -453,7 +539,7 @@ namespace minidrm {
     }
 
 #if defined(MINIDRM_EGL)
-    egl_t::egl_t(const drm::handle_t    &drm_handle,
+    egl_t::egl_t(drm::handle_t          &drm_handle,
                  const drm::connector_t &conn,
                  const drm::crtc_t      &crtc,
                  const drm::mode_t      &mode,
@@ -464,59 +550,18 @@ namespace minidrm {
       , mode(mode)
       , num_backbuffers(bufs)
       , current_backbuffer(0) {
-      egl_display = eglGetDisplay(drm_handle.gbm);
-      if (egl_display == EGL_NO_DISPLAY) {
-        throw std::runtime_error("Failed to get EGL display");
-      }
 
-      if (!eglInitialize(egl_display, nullptr, nullptr)) {
-        throw std::runtime_error("Failed to initialize EGL");
-      }
+      drm.init_egl();
 
-      if (!eglBindAPI(EGL_OPENGL_ES_API)) {
-        throw std::runtime_error("eglBindAPI failed");
-      }
-
-      // 4. Choose EGL config
-      const EGLint config_attribs[] = { EGL_SURFACE_TYPE, EGL_WINDOW_BIT,
-                                        // RGB
-                                        EGL_RED_SIZE, 8, EGL_GREEN_SIZE, 8, EGL_BLUE_SIZE, 8,
-                                        EGL_ALPHA_SIZE, 0, EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
-                                        EGL_NONE };
-
-      EGLint    matching_config;
-      EGLConfig configs[64];
-      EGLint    num_configs;
-      eglChooseConfig(egl_display, config_attribs, configs, 64, &num_configs);
-
-      bool found = false;
-      for (int i = 0; i < num_configs; ++i) {
-        EGLint id;
-        if (eglGetConfigAttrib(egl_display, configs[i], EGL_NATIVE_VISUAL_ID, &id)) {
-          if (id == GBM_FORMAT_XRGB8888) {
-            egl_config = configs[i];
-            found      = true;
-            break;
-          }
-        }
-      }
-
-      // 5. Create EGL context
-      const EGLint ctx_attribs[] = { EGL_CONTEXT_CLIENT_VERSION, 2, EGL_NONE };
-      egl_context = eglCreateContext(egl_display, egl_config, EGL_NO_CONTEXT, ctx_attribs);
-      if (egl_context == EGL_NO_CONTEXT) {
-        throw std::runtime_error("eglCreateContext failed");
-      }
-
-      surface = gbm_surface_create(drm_handle.gbm, mode.width(), mode.height(), GBM_FORMAT_XRGB8888,
+      surface = gbm_surface_create(drm->gbm, mode.width(), mode.height(), GBM_FORMAT_XRGB8888,
                                    GBM_BO_USE_SCANOUT | GBM_BO_USE_RENDERING);
       if (!surface) {
         throw std::runtime_error("failed to create GBM surface");
       }
 
       // 7. Create EGL window surface from GBM surface
-      egl_surface =
-        eglCreateWindowSurface(egl_display, egl_config, (EGLNativeWindowType)surface, NULL);
+      egl_surface = eglCreateWindowSurface(drm->egl.display, drm->egl.config,
+                                           (EGLNativeWindowType)surface, NULL);
       if (!egl_surface) {
         throw std::runtime_error("Failed to create EGL surface");
       }
@@ -530,10 +575,10 @@ namespace minidrm {
       }
 
       // 8. Make context current & do an initial swap to render.
-      if (!eglMakeCurrent(egl_display, egl_surface, egl_surface, egl_context)) {
+      if (!eglMakeCurrent(drm->egl.display, egl_surface, egl_surface, drm->egl.context)) {
         throw std::runtime_error("Failed to eglMakeCurrent");
       }
-      eglSwapBuffers(egl_display, egl_surface);
+      eglSwapBuffers(drm->egl.display, egl_surface);
 
       // Provision the first FB id
       gbm_bo *bo = backbuffers[0].bo = gbm_surface_lock_front_buffer(surface);
@@ -558,7 +603,7 @@ namespace minidrm {
 
     egl_t::egl_buffer_t
     egl_t::acquire() {
-      if (!eglMakeCurrent(egl_display, egl_surface, egl_surface, egl_context)) {
+      if (!eglMakeCurrent(drm->egl.display, egl_surface, egl_surface, drm->egl.context)) {
         throw std::runtime_error("Failed to eglMakeCurrent");
       }
       // Note: we do *not* release the BO yet — it’s still needed for display
@@ -567,10 +612,10 @@ namespace minidrm {
 
     void
     egl_t::present(const egl_buffer_t &buf) {
-      if (!eglMakeCurrent(egl_display, egl_surface, egl_surface, egl_context)) {
+      if (!eglMakeCurrent(drm->egl.display, egl_surface, egl_surface, drm->egl.context)) {
         throw std::runtime_error("Failed to eglMakeCurrent");
       }
-      eglSwapBuffers(egl_display, egl_surface);
+      eglSwapBuffers(drm->egl.display, egl_surface);
 
       // Lock the surface we just rendered to.
       gbm_bo *bo = gbm_surface_lock_front_buffer(surface);
