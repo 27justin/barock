@@ -1,18 +1,21 @@
 #pragma once
 
+#include "barock/core/surface.hpp"
 #include <vector>
 #include <wayland-server-core.h>
 
 namespace barock {
-  struct surface_t;
+  struct compositor_t;
 
   class wl_compositor_t {
     public:
-    wl_global                       *global;
-    static constexpr uint32_t        VERSION = 6;
-    std::vector<barock::surface_t *> surfaces;
+    wl_global    *global;
+    compositor_t &compositor;
 
-    wl_compositor_t(wl_display *);
+    static constexpr uint32_t             VERSION = 6;
+    std::vector<barock::base_surface_t *> surfaces;
+
+    wl_compositor_t(compositor_t &);
     ~wl_compositor_t();
 
     static void

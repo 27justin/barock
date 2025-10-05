@@ -1,5 +1,6 @@
 #include "barock/compositor.hpp"
 
+#include "barock/core/surface.hpp"
 #include "barock/shell/xdg_surface.hpp"
 #include "barock/shell/xdg_wm_base.hpp"
 
@@ -48,11 +49,14 @@ namespace barock {
     xdg_shell_t *shell =
       reinterpret_cast<xdg_shell_t *>(wl_resource_get_user_data(wm_base_resource));
 
-    // Handle client asking for an xdg_surface tied to a wl_surface
+    // Check whether client created a surface on our wl_compositor yet.
     if (!surface_result) {
       wl_client_post_no_memory(client);
       return;
     }
+
+    auto compositor_surface = (barock::base_surface_t *)wl_resource_get_user_data(surface_result);
+    xdg_surface_t *surface  = new xdg_surface_t{ .shell = shell, .surface = compositor_surface };
 
     // Create resource
     struct wl_resource *xdg_surface_resource = wl_resource_create(
@@ -63,19 +67,14 @@ namespace barock {
       return;
     }
 
-    wl_resource_set_implementation(xdg_surface_resource, &xdg_surface_impl, nullptr,
-                                   &barock::xdg_shell_t::xdg_surface_destroy);
+    wl_resource_set_implementation(
+      xdg_surface_resource, &xdg_surface_impl, surface, [](wl_resource *resource) {
+        auto surface = static_cast<xdg_surface_t *>(wl_resource_get_user_data(resource));
+        delete surface;
+      });
 
     // Send the configure event
     xdg_surface_send_configure(xdg_surface_resource,
                                wl_display_next_serial(shell->compositor.display()));
-
-    // TODO: Save this xdg_surface_resource somewhere, and implement xdg_surface_listener
   }
-
-  void
-  xdg_shell_t::xdg_surface_destroy(wl_resource *) {
-    WARN("server-side: destroy xdg surface");
-  }
-
 };

@@ -46,14 +46,25 @@ namespace barock {
     wl_resource *shm =
       wl_resource_create(client, &wl_shm_pool_interface, wl_resource_get_version(resource), id);
 
-    shm_pool_t *pool = new shm_pool_t(shm, fd, size, data);
+    shm_pool_t *pool    = new shm_pool_t(shm, fd, size, data);
+    pool->marked_delete = false;
     wl_resource_set_implementation(shm, &wl_shm_pool_impl, pool, shm_pool_t::destroy);
     wl_resource_set_user_data(shm, pool);
   }
 
   void
-  shm_t::handle_release(wl_client *, wl_resource *) {
+  shm_t::handle_release(wl_client *, wl_resource *resource) {
+    /*
+      release the shm object
+
+      Using this request a client can tell the server that it is not going to use the shm object
+      anymore.
+
+      Objects created via this interface remain unaffected.
+     */
     ERROR("shm release");
+    // TODO: Is this correct?
+    wl_resource_destroy(resource);
   }
 
 };

@@ -1,9 +1,28 @@
 #pragma once
 
 #include "../compositor.hpp"
+#include <map>
 #include <wayland-server-core.h>
 
+#define DECLARE_SURFACE_ROLE(name, ...)
+
 namespace barock {
+  struct xdg_shell_t;
+  struct xdg_toplevel_t;
+
+  enum class xdg_role_t { eToplevel, ePopup };
+
+  struct xdg_surface_t {
+    xdg_shell_t    *shell;
+    base_surface_t *surface;
+    xdg_role_t      role;
+    struct {
+      union {
+        xdg_toplevel_t *toplevel;
+      };
+    } as;
+  };
+
   class xdg_shell_t {
     private:
     compositor_t &compositor;

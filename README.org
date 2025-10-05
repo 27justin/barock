@@ -1,5 +1,4 @@
-#+TITLE: barock
-#+AUTHOR: Justin Andreas Lacoste
+* barock ~baˈrɔk~
 
 Wayland Compositor, more information will follow at some point.
 

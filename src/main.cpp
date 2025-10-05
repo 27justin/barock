@@ -12,8 +12,10 @@
 
 #include "barock/compositor.hpp"
 #include "barock/core/shm_pool.hpp"
+#include "barock/core/surface.hpp"
 #include "barock/core/wl_compositor.hpp"
-#include "barock/core/wl_surface.hpp"
+#include "barock/shell/xdg_toplevel.hpp"
+#include "barock/shell/xdg_wm_base.hpp"
 #include "log.hpp"
 
 #include <wayland-server-core.h>
@@ -156,12 +158,23 @@ draw_quad(GLuint program, GLuint texture) {
 using namespace minidrm;
 int
 main() {
-  INFO("Welcome to {}", "Barock!");
-
   barock::compositor_t compositor;
 
   std::thread([&] {
-    compositor.run();
+    wl_display    *display  = compositor.display();
+    wl_event_loop *loop     = wl_display_get_event_loop(display);
+    static int     throttle = 0;
+
+    while (1) {
+      // Dispatch events (fd handlers, client requests, etc.)
+      wl_event_loop_dispatch(loop, 0); // 0 = non-blocking, -1 = blocking
+
+      // Dispatch frame callbacks
+      compositor.frame_done_flush_callback(&compositor);
+
+      // Flush any pending Wayland client events
+      wl_display_flush_clients(display);
+    }
     std::exit(1);
   }).detach();
 
@@ -208,6 +221,11 @@ main() {
     }
   }
 
+  std::thread([] {
+    std::this_thread::sleep_for(std::chrono::seconds(10));
+    std::exit(0);
+  }).detach();
+
   auto   quad_program = init_quad_program();
   GLuint texture      = 0;
   for (;;) {
@@ -222,6 +240,13 @@ main() {
       for (auto const surface : compositor.wl_compositor->surfaces) {
         if (!surface->buffer)
           continue;
+        if (!surface->role)
+          continue;
+
+        if (surface->role->type_id() == barock::xdg_toplevel_t::id()) {
+          auto &role = reinterpret_cast<barock::xdg_toplevel_t *>(surface->role)->data;
+          glViewport(role.x, role.y, role.width, role.height);
+        }
 
         // INFO("Rendering surface...");
         barock::shm_buffer_t *buffer =
@@ -251,23 +276,11 @@ main() {
         draw_quad(quad_program, texture);
         GL_CHECK;
 
-        if (surface->callback) {
-          // Tell the client that the image was displayed.
-          wl_callback_send_done(surface->callback, current_time_msec());
-          wl_resource_destroy(surface->callback);
-          wl_buffer_send_release(surface->buffer);
-          surface->callback = nullptr;
-        }
-
-        surface->is_dirty.store(false);
+        compositor.schedule_frame_done(surface, current_time_msec());
       }
 
       screen->present(front);
     }
-    // NOTE: This is required, as we try to send a `done` to the frame
-    // callbacks, but this is only flushed, implicitly when wayland
-    // itself processes client events, or when we do this:
-    wl_display_flush_clients(compositor.display());
   }
 
   return 0;

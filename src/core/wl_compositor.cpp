@@ -1,8 +1,9 @@
 #include "wl/wayland-protocol.h"
 
 #include "../log.hpp"
+#include "barock/compositor.hpp"
+#include "barock/core/surface.hpp"
 #include "barock/core/wl_compositor.hpp"
-#include "barock/core/wl_surface.hpp"
 #include <GLES2/gl2.h>
 #include <iostream>
 
@@ -14,8 +15,9 @@ static const struct wl_compositor_interface wl_compositor_impl = {
 namespace barock {
   wl_compositor_t::~wl_compositor_t() {}
 
-  wl_compositor_t::wl_compositor_t(wl_display *display) {
-    wl_global_create(display, &wl_compositor_interface, VERSION, this, bind);
+  wl_compositor_t::wl_compositor_t(compositor_t &comp)
+    : compositor(comp) {
+    wl_global_create(comp.display(), &wl_compositor_interface, VERSION, this, bind);
   }
 
   void
@@ -47,10 +49,12 @@ namespace barock {
 
     INFO("Create surface");
 
-    barock::surface_t *surface = new barock::surface_t;
-    surface->buffer            = nullptr;
-    surface->is_dirty          = false;
-    surface->compositor        = compositor_base_res;
+    barock::base_surface_t *surface = new barock::base_surface_t;
+    surface->buffer                 = nullptr;
+    surface->is_dirty               = false;
+    // TODO: Ugrh.. I hate this nomenclature
+    surface->compositor = &compositor->compositor;
+    surface->role       = nullptr;
 
     compositor->surfaces.push_back(surface);
 
@@ -59,8 +63,8 @@ namespace barock {
       surface_res, &wl_surface_impl,
       surface, // pointer to our surface object
       [](wl_resource *resource) {
-        auto surface    = (barock::surface_t *)wl_resource_get_user_data(resource);
-        auto compositor = (barock::wl_compositor_t *)wl_resource_get_user_data(surface->compositor);
+        auto surface    = (barock::base_surface_t *)wl_resource_get_user_data(resource);
+        auto compositor = surface->compositor->wl_compositor.get();
 
         auto it = std::find(compositor->surfaces.begin(), compositor->surfaces.end(), surface);
         if (it != compositor->surfaces.end())

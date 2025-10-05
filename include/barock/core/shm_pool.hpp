@@ -6,13 +6,16 @@
 extern struct wl_shm_pool_interface wl_shm_pool_impl;
 
 namespace barock {
+  struct shm_buffer_t;
+
   struct shm_pool_t {
     public:
-    wl_resource               *resource;
-    void                      *data;
-    int32_t                    size;
-    int32_t                    fd;
-    std::vector<wl_resource *> buffers;
+    wl_resource                *resource;
+    void                       *data;
+    int32_t                     size;
+    int32_t                     fd;
+    std::vector<shm_buffer_t *> buffers;
+    bool                        marked_delete;
 
     shm_pool_t(wl_resource *res, int fd, int size, void *ptr);
     ~shm_pool_t();

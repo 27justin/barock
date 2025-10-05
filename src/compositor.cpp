@@ -5,9 +5,34 @@
 #include "barock/shell/xdg_wm_base.hpp"
 #include "log.hpp"
 
+#include <cstdint>
 #include <wayland-server-core.h>
 
 namespace barock {
+  int
+  compositor_t::frame_done_flush_callback(void *data) {
+    barock::compositor_t *compositor = static_cast<barock::compositor_t *>(data);
+
+    std::lock_guard lock(compositor->frame_updates_lock);
+
+    while (!compositor->frame_updates.empty()) {
+      auto &[surface, timestamp] = compositor->frame_updates.front();
+
+      if (surface->callback) {
+        wl_callback_send_done(surface->callback, timestamp);
+        wl_resource_destroy(surface->callback);
+        surface->callback = nullptr;
+      }
+
+      if (surface->buffer) {
+        wl_buffer_send_release(surface->buffer);
+        // surface->buffer = nullptr; // optional if reused
+      }
+
+      compositor->frame_updates.pop();
+    }
+    return 1;
+  }
 
   compositor_t::compositor_t() {
     using std::make_unique;
@@ -17,13 +42,14 @@ namespace barock {
 
     // Initialize protocols
     xdg_shell     = make_unique<xdg_shell_t>(*this);
-    wl_compositor = make_unique<wl_compositor_t>(display_);
+    wl_compositor = make_unique<wl_compositor_t>(*this);
     shm           = make_unique<shm_t>(display_);
 
-    // wl_event_source *source = wl_event_loop_add_timer(event_loop_, [](void *ud) {
-    //   return static_cast<compositor_t *>(ud)->redraw();
-    // }, this);
-    // wl_event_source_timer_update(source, 16);
+    // -- Event loop subscribers
+
+    // Create an idle source that will run in the main thread
+    frame_event_source =
+      wl_event_loop_add_timer(event_loop_, compositor_t::frame_done_flush_callback, this);
   }
 
   compositor_t::~compositor_t() {}
@@ -39,11 +65,10 @@ namespace barock {
     wl_display_destroy(display_);
   }
 
-  int
-  compositor_t::redraw() {
-    // INFO("redraw");
-    // std::exit(0);
-    return 16;
+  void
+  compositor_t::schedule_frame_done(base_surface_t *surface, uint32_t timestamp) {
+    std::lock_guard lock(frame_updates_lock);
+    frame_updates.push(std::pair<barock::base_surface_t *, uint32_t>(surface, timestamp));
   }
 
 }

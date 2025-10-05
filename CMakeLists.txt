@@ -19,7 +19,7 @@ set(barock_SOURCES
 
   # core
   src/core/wl_compositor.cpp
-  src/core/wl_surface.cpp
+  src/core/surface.cpp
   src/core/shm.cpp
   src/core/shm_pool.cpp
 
