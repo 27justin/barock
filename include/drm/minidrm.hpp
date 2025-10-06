@@ -443,7 +443,6 @@ namespace minidrm::drm {
   handle_t::init_egl() {
     if (data->egl.initialized)
       return;
-    printf("Initializing EGL on DRI carrd\n");
 
     data->egl.display = eglGetDisplay(data->gbm);
     if (data->egl.display == EGL_NO_DISPLAY) {

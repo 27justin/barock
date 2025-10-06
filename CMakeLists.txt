@@ -17,6 +17,9 @@ set(barock_SOURCES
   src/compositor.cpp
   src/log.cpp
 
+  # input
+  src/input.cpp
+
   # drm
   src/drm/minidrm.cpp
 
@@ -56,3 +59,12 @@ generate_wayland_protocol(barock ${CMAKE_SOURCE_DIR}/protocols/linux-dmabuf-v1.x
 
 target_link_libraries(barock PRIVATE minidrm)
 target_link_libraries(barock PRIVATE wayland-server)
+
+# udev & libinput
+
+pkg_check_modules(libinput REQUIRED libinput)
+target_link_libraries(barock PRIVATE ${libinput_LIBRARIES})
+target_include_directories(barock PRIVATE ${libinput_INCLUDE_DIRS})
+target_compile_options(barock PRIVATE ${libinput_CFLAGS})
+
+target_link_libraries(barock PRIVATE udev)

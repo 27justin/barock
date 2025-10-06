@@ -3,6 +3,7 @@
 #include "barock/core/shm.hpp"
 #include "barock/core/wl_compositor.hpp"
 #include "barock/dmabuf/dmabuf.hpp"
+#include "barock/input.hpp"
 #include "barock/shell/xdg_wm_base.hpp"
 #include "log.hpp"
 
@@ -12,7 +13,7 @@
 #include <wayland-server-core.h>
 
 namespace barock {
-  int
+  void
   compositor_t::frame_done_flush_callback(void *data) {
     barock::compositor_t *compositor = static_cast<barock::compositor_t *>(data);
 
@@ -34,15 +35,17 @@ namespace barock {
 
       compositor->frame_updates.pop();
     }
-    return 1;
   }
 
-  compositor_t::compositor_t(minidrm::drm::handle_t drm_handle)
+  compositor_t::compositor_t(minidrm::drm::handle_t drm_handle, const std::string &seat)
     : drm_handle_(drm_handle) {
     using std::make_unique;
     display_ = wl_display_create();
     wl_display_add_socket(display_, nullptr);
     event_loop_ = wl_display_get_event_loop(display_);
+
+    // Initialize input devices
+    input = make_unique<input_t>(seat);
 
     // Initialize protocols
     xdg_shell     = make_unique<xdg_shell_t>(*this);

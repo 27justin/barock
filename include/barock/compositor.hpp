@@ -15,11 +15,12 @@ namespace barock {
   class shm_t;
   class dmabuf_t;
   struct base_surface_t;
+  struct input_t;
 
   class compositor_t {
     private:
-    wl_display            *display_;
-    wl_event_loop         *event_loop_;
+    wl_display *display_;
+
     minidrm::drm::handle_t drm_handle_;
 
     std::mutex                                                frame_updates_lock;
@@ -27,12 +28,19 @@ namespace barock {
     wl_event_source                                          *frame_event_source;
 
     public:
+    wl_event_loop                   *event_loop_;
     std::unique_ptr<xdg_shell_t>     xdg_shell;
     std::unique_ptr<wl_compositor_t> wl_compositor;
     std::unique_ptr<shm_t>           shm;
     std::unique_ptr<dmabuf_t>        dmabuf;
+    std::unique_ptr<input_t>         input;
 
-    compositor_t(minidrm::drm::handle_t drm_handle);
+    struct {
+      double x;
+      double y;
+    } cursor;
+
+    compositor_t(minidrm::drm::handle_t drm_handle, const std::string &seat);
     ~compositor_t();
 
     void
@@ -45,7 +53,7 @@ namespace barock {
 
     void
     schedule_frame_done(base_surface_t *surface, uint32_t timestamp);
-    static int
+    static void
     frame_done_flush_callback(void *);
   };
 

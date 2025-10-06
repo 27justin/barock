@@ -11,10 +11,10 @@
 namespace barock {
   using signal_token_t = int;
 
-  template<typename _Event>
+  template<typename... Args>
   struct signal_t {
     private:
-    std::map<signal_token_t, std::function<void(_Event)>> listeners;
+    std::map<signal_token_t, std::function<void(Args...)>> listeners;
 
     public:
     signal_t() {};
@@ -25,7 +25,7 @@ namespace barock {
     signal_t(const signal_t &) = delete;
 
     signal_token_t
-    connect(std::function<void(const _Event &)> cb) {
+    connect(std::function<void(Args...)> cb) {
       signal_token_t tok = 0;
       if (listeners.size() > 0)
         tok = listeners.rbegin()->first;
@@ -39,9 +39,9 @@ namespace barock {
     }
 
     void
-    emit(_Event ev) {
+    emit(Args... args) {
       for (auto const &[_, cb] : listeners) {
-        cb(ev);
+        cb(args...);
       }
     }
 
@@ -53,4 +53,47 @@ namespace barock {
     void
     operator=(const signal_t &) = delete; // Same as the copy-ctor
   };
+
+  // Specialization for void (empty signals with no arguments)
+  template<>
+  struct signal_t<void> {
+    private:
+    using _Listener = std::function<void()>;
+    std::map<signal_token_t, _Listener> listeners;
+
+    public:
+    signal_t() = default;
+    signal_t(signal_t &&other) noexcept
+      : listeners(std::move(other.listeners)) {}
+    signal_t &
+    operator=(signal_t &&other) noexcept {
+      listeners = std::move(other.listeners);
+      return *this;
+    }
+
+    signal_t(const signal_t &) = delete;
+    signal_t &
+    operator=(const signal_t &) = delete;
+
+    signal_token_t
+    connect(_Listener cb) {
+      signal_token_t tok = 0;
+      if (!listeners.empty())
+        tok = listeners.rbegin()->first + 1;
+      listeners.emplace(tok, std::move(cb));
+      return tok;
+    }
+
+    void
+    disconnect(signal_token_t token) {
+      listeners.erase(token);
+    }
+
+    void
+    emit() {
+      for (const auto &[_, cb] : listeners)
+        cb();
+    }
+  };
+
 }

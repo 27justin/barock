@@ -1,11 +1,16 @@
 #include <GLES2/gl2.h>
 #include <GLES2/gl2ext.h>
 #include <iostream>
+#include <libudev.h>
 #include <memory>
 
 #include <cstdlib>
 #include <fcntl.h>
 #include <gbm.h>
+#include <libinput.h>
+#include <linux/input-event-codes.h>
+#include <numeric>
+#include <spawn.h>
 #include <thread>
 #include <unistd.h>
 
@@ -13,6 +18,7 @@
 #include "barock/core/shm_pool.hpp"
 #include "barock/core/surface.hpp"
 #include "barock/core/wl_compositor.hpp"
+#include "barock/input.hpp"
 #include "barock/shell/xdg_toplevel.hpp"
 #include "barock/shell/xdg_wm_base.hpp"
 #include "log.hpp"
@@ -171,10 +177,55 @@ draw_quad(GLuint program, GLuint texture) {
 using namespace minidrm;
 int
 main() {
+  if (!getenv("XDG_SEAT")) {
+    ERROR("No XDG_SEAT environment variable set. Exitting.");
+    return 1;
+  }
+
+  std::vector<std::unique_ptr<framebuffer::egl_t>> monitors;
+
   auto card = drm::cards()[0];
   auto hdl  = card.open();
 
-  barock::compositor_t compositor(hdl);
+  barock::compositor_t compositor(hdl, getenv("XDG_SEAT"));
+
+  compositor.input->on_keyboard_input.connect([](const barock::keyboard_event_t &key) {
+    uint32_t scancode = libinput_event_keyboard_get_key(key.keyboard);
+    if (scancode == KEY_ESC)
+      std::exit(0);
+  });
+
+  compositor.input->on_mouse_move.connect([&](const barock::mouse_event_t &move) {
+    enum libinput_event_type ty = libinput_event_get_type(move.event);
+    // Our `on_mouse_move` signal triggers on two separate libinput events:
+    // - LIBINPUT_EVENT_POINTER_MOTION
+    // - LIBINPUT_EVENT_POINTER_MOTION_ABSOLUTE
+    //
+    // The latter (MOTION_ABSOLUTE), has it's values based on the
+    // absolute extent of the device (imagine a graphics tablet, or a
+    // touch-screen).
+    //
+    // While the former reports just delta.
+    //
+    // Therefore to correctly handle these two cases, we query all
+    // active monitors for their size, and from that compute a
+    // relative cursor position.
+
+    if (ty == LIBINPUT_EVENT_POINTER_MOTION_ABSOLUTE) {
+      uint32_t sx = 0, sy = 0;
+      for (auto &s : monitors) {
+        sx += s->mode.width();
+        sy = std::max(sy, s->mode.height());
+      }
+
+      compositor.cursor.x = libinput_event_pointer_get_absolute_x_transformed(move.pointer, sx);
+      compositor.cursor.y = libinput_event_pointer_get_absolute_y_transformed(move.pointer, sy);
+    } else {
+      // Relative (delta) movement, just add this onto our position.
+      compositor.cursor.x += libinput_event_pointer_get_dx(move.pointer);
+      compositor.cursor.y += libinput_event_pointer_get_dy(move.pointer);
+    }
+  });
 
   std::thread([&] {
     wl_display    *display  = compositor.display();
@@ -185,6 +236,8 @@ main() {
       // Dispatch events (fd handlers, client requests, etc.)
       wl_event_loop_dispatch(loop, 0); // 0 = non-blocking, -1 = blocking
 
+      compositor.input->poll(0);
+
       // Dispatch frame callbacks
       compositor.frame_done_flush_callback(&compositor);
 
@@ -193,8 +246,6 @@ main() {
     }
     std::exit(1);
   }).detach();
-
-  std::vector<std::unique_ptr<framebuffer::egl_t>> monitors;
 
   auto connectors = hdl.connectors();
 
@@ -235,11 +286,6 @@ main() {
     }
   }
 
-  std::thread([] {
-    std::this_thread::sleep_for(std::chrono::seconds(10));
-    std::exit(0);
-  }).detach();
-
   auto   quad_program = init_quad_program();
   GLuint texture      = 0;
   for (;;) {
@@ -249,6 +295,12 @@ main() {
       glViewport(0, 0, screen->mode.width(), screen->mode.height());
       glClearColor(0.08f, 0.08f, 0.10f, 1.f);
       glClear(GL_COLOR_BUFFER_BIT);
+
+      glEnable(GL_SCISSOR_TEST);
+      glScissor((int)compositor.cursor.x, (int)1080. - compositor.cursor.y, 16, 16);
+      glClearColor(1.0, 0., 0., 1.);
+      glClear(GL_COLOR_BUFFER_BIT);
+      glDisable(GL_SCISSOR_TEST);
 
       // Iterate all surfaces...
       for (auto const surface : compositor.wl_compositor->surfaces) {
