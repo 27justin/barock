@@ -23,6 +23,7 @@ namespace barock {
     wl_resource_set_implementation(resource, &shm_impl, NULL, NULL);
     wl_shm_send_format(resource, WL_SHM_FORMAT_XRGB8888);
     wl_shm_send_format(resource, WL_SHM_FORMAT_RGBA8888);
+    wl_shm_send_format(resource, WL_SHM_FORMAT_ARGB8888);
   }
 
   // ----------------------------------

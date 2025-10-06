@@ -3,6 +3,8 @@
 #include <wayland-server-core.h>
 #include <wayland-server.h>
 
+#include "../drm/minidrm.hpp"
+
 #include <memory>
 #include <mutex>
 #include <queue>
@@ -11,12 +13,14 @@ namespace barock {
   class xdg_shell_t;
   class wl_compositor_t;
   class shm_t;
+  class dmabuf_t;
   struct base_surface_t;
 
   class compositor_t {
     private:
-    wl_display    *display_;
-    wl_event_loop *event_loop_;
+    wl_display            *display_;
+    wl_event_loop         *event_loop_;
+    minidrm::drm::handle_t drm_handle_;
 
     std::mutex                                                frame_updates_lock;
     std::queue<std::pair<barock::base_surface_t *, uint32_t>> frame_updates;
@@ -26,8 +30,9 @@ namespace barock {
     std::unique_ptr<xdg_shell_t>     xdg_shell;
     std::unique_ptr<wl_compositor_t> wl_compositor;
     std::unique_ptr<shm_t>           shm;
+    std::unique_ptr<dmabuf_t>        dmabuf;
 
-    compositor_t();
+    compositor_t(minidrm::drm::handle_t drm_handle);
     ~compositor_t();
 
     void

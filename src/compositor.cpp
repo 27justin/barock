@@ -2,10 +2,13 @@
 
 #include "barock/core/shm.hpp"
 #include "barock/core/wl_compositor.hpp"
+#include "barock/dmabuf/dmabuf.hpp"
 #include "barock/shell/xdg_wm_base.hpp"
 #include "log.hpp"
 
+#include <EGL/eglext.h>
 #include <cstdint>
+#include <wayland-egl-backend.h>
 #include <wayland-server-core.h>
 
 namespace barock {
@@ -34,7 +37,8 @@ namespace barock {
     return 1;
   }
 
-  compositor_t::compositor_t() {
+  compositor_t::compositor_t(minidrm::drm::handle_t drm_handle)
+    : drm_handle_(drm_handle) {
     using std::make_unique;
     display_ = wl_display_create();
     wl_display_add_socket(display_, nullptr);
@@ -44,12 +48,7 @@ namespace barock {
     xdg_shell     = make_unique<xdg_shell_t>(*this);
     wl_compositor = make_unique<wl_compositor_t>(*this);
     shm           = make_unique<shm_t>(display_);
-
-    // -- Event loop subscribers
-
-    // Create an idle source that will run in the main thread
-    frame_event_source =
-      wl_event_loop_add_timer(event_loop_, compositor_t::frame_done_flush_callback, this);
+    dmabuf        = make_unique<dmabuf_t>(*this);
   }
 
   compositor_t::~compositor_t() {}

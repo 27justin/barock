@@ -17,11 +17,19 @@ set(barock_SOURCES
   src/compositor.cpp
   src/log.cpp
 
+  # drm
+  src/drm/minidrm.cpp
+
   # core
   src/core/wl_compositor.cpp
   src/core/surface.cpp
   src/core/shm.cpp
   src/core/shm_pool.cpp
+
+  # dmabuf
+  src/dmabuf/dmabuf.cpp
+  src/dmabuf/buffer.cpp
+  src/dmabuf/feedback.cpp
 
   # xdg shell
   src/shell/xdg_wm_base.cpp
@@ -31,7 +39,7 @@ set(barock_SOURCES
 
 target_include_directories(barock PUBLIC "include/")
 
-add_subdirectory(src/drm)
+add_subdirectory(include/drm)
 
 target_sources(barock
   PUBLIC
@@ -44,6 +52,7 @@ pkg_check_modules(WAYLAND_PROTOCOLS REQUIRED wayland-protocols)
 include(cmake/wayland.cmake)
 generate_wayland_protocol(barock ${CMAKE_SOURCE_DIR}/protocols/xdg-shell.xml)
 generate_wayland_protocol(barock ${CMAKE_SOURCE_DIR}/protocols/wayland.xml)
+generate_wayland_protocol(barock ${CMAKE_SOURCE_DIR}/protocols/linux-dmabuf-v1.xml)
 
 target_link_libraries(barock PRIVATE minidrm)
 target_link_libraries(barock PRIVATE wayland-server)

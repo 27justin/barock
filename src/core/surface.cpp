@@ -86,14 +86,21 @@ wl_surface_attach(wl_client   *client,
   surface->on_buffer_attached.emit(*shm_buffer);
 }
 
-struct wl_surface_interface wl_surface_impl = { .destroy              = wl_surface_destroy,
-                                                .attach               = wl_surface_attach,
-                                                .damage               = wl_surface_damage,
-                                                .frame                = wl_surface_frame,
-                                                .set_opaque_region    = nullptr,
-                                                .set_input_region     = nullptr,
-                                                .commit               = wl_surface_commit,
-                                                .set_buffer_transform = nullptr,
-                                                .set_buffer_scale     = nullptr,
-                                                .damage_buffer        = nullptr,
-                                                .offset               = nullptr };
+struct wl_surface_interface wl_surface_impl = {
+  .destroy = wl_surface_destroy,
+  .attach  = wl_surface_attach,
+  .damage  = wl_surface_damage,
+  .frame   = wl_surface_frame,
+  .set_opaque_region =
+    [](wl_client *, wl_resource *, wl_resource *) {
+      INFO("set opaque region");
+      return;
+    },
+  .set_input_region     = nullptr,
+  .commit               = wl_surface_commit,
+  .set_buffer_transform = nullptr,
+  .set_buffer_scale     = nullptr,
+  .damage_buffer =
+    [](wl_client *, wl_resource *, int32_t, int32_t, int32_t, int32_t) { INFO("Damage Buffer"); },
+  .offset = nullptr
+};

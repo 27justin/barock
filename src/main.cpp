@@ -6,7 +6,6 @@
 #include <cstdlib>
 #include <fcntl.h>
 #include <gbm.h>
-#include <iomanip>
 #include <thread>
 #include <unistd.h>
 
@@ -19,10 +18,7 @@
 #include "log.hpp"
 
 #include <wayland-server-core.h>
-#include <xf86drm.h>
-#include <xf86drmMode.h>
 
-#define MINIDRM_IMPLEMENTATION
 #include "drm/minidrm.hpp"
 
 uint32_t
@@ -116,9 +112,8 @@ init_quad_program() {
         uniform sampler2D u_texture;
 
         void main() {
-            vec4 color = texture2D(u_texture, v_texcoord);
-            gl_FragColor = vec4(color.rgb, 1.0);
-            // gl_FragColor = vec4(1.0 * v_texcoord.x, 1. * v_texcoord.y, 0., 1.);
+            vec4 color = texture2D(u_texture, vec2(v_texcoord.x, 1.0 - v_texcoord.y));
+            gl_FragColor = color;
         }
     )";
 
@@ -129,7 +124,6 @@ void
 draw_quad(GLuint program, GLuint texture) {
   GL_CHECK;
 
-  INFO("Program: {}, texture: {}", program, texture);
   glUseProgram(program);
   GL_CHECK;
 
@@ -177,7 +171,10 @@ draw_quad(GLuint program, GLuint texture) {
 using namespace minidrm;
 int
 main() {
-  barock::compositor_t compositor;
+  auto card = drm::cards()[0];
+  auto hdl  = card.open();
+
+  barock::compositor_t compositor(hdl);
 
   std::thread([&] {
     wl_display    *display  = compositor.display();
@@ -198,9 +195,6 @@ main() {
   }).detach();
 
   std::vector<std::unique_ptr<framebuffer::egl_t>> monitors;
-
-  auto card = drm::cards()[0];
-  auto hdl  = card.open();
 
   auto connectors = hdl.connectors();
 
@@ -290,7 +284,7 @@ main() {
         GL_CHECK;
 
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, buffer->width, buffer->height, 0, GL_BGRA_EXT,
-                     GL_UNSIGNED_BYTE, buffer->data);
+                     GL_UNSIGNED_BYTE, buffer->data());
         GL_CHECK;
 
         draw_quad(quad_program, texture);

@@ -29,6 +29,8 @@ namespace barock {
     wl_resource        *resource;
     int32_t             offset, width, height, stride;
     uint32_t            format;
-    void               *data;
+
+    void *
+    data();
   };
 };

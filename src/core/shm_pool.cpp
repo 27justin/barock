@@ -38,7 +38,6 @@ create_buffer(struct wl_client   *client,
   buf->height               = height;
   buf->stride               = stride;
   buf->format               = format;
-  buf->data = reinterpret_cast<void *>(reinterpret_cast<uintptr_t>(buf->pool->data) + offset);
 
   pool->buffers.emplace_back(buf);
 
@@ -89,6 +88,35 @@ destroy(struct wl_client *client, struct wl_resource *resource) {
 void
 resize(struct wl_client *client, struct wl_resource *resource, int32_t size) {
   ERROR("shm pool :: resize");
+  /*
+    change the size of the pool mapping
+
+    This request will cause the server to remap the backing memory for the pool from the file
+    descriptor passed when the pool was created, but using the new size. This request can only be
+    used to make the pool bigger.
+
+    This request only changes the amount of bytes that are mmapped by the server and does not touch
+    the file corresponding to the file descriptor passed at creation time. It is the client's
+    responsibility to ensure that the file is at least as big as the new pool size.
+   */
+  barock::shm_pool_t *pool = (barock::shm_pool_t *)wl_resource_get_user_data(resource);
+
+  if (size < pool->size) {
+    wl_client_post_implementation_error(client, "new size is smaller than original size");
+    return;
+  }
+
+  if (munmap(pool->data, pool->size)) {
+    ERROR("wl_shm_pool#resize failed with error: {}", strerror(errno));
+    return;
+  }
+
+  pool->size = size;
+  pool->data = mmap(nullptr, pool->size, PROT_READ | PROT_WRITE, MAP_SHARED, pool->fd, 0);
+  if (!pool->data) {
+    wl_client_post_no_memory(client);
+    return;
+  }
 }
 
 struct wl_shm_pool_interface wl_shm_pool_impl = { .create_buffer = create_buffer,
@@ -113,4 +141,8 @@ namespace barock {
     delete pool;
   }
 
+  void *
+  shm_buffer_t::data() {
+    return (void *)(((uintptr_t)pool->data) + offset);
+  }
 };
