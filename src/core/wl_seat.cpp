@@ -3,8 +3,31 @@
 #include "barock/compositor.hpp"
 #include "barock/input.hpp"
 #include "wl/wayland-protocol.h"
+#include <fcntl.h>
 #include <libinput.h>
+#include <sys/mman.h>
+#include <unistd.h>
 #include <wayland-server-core.h>
+#include <xkbcommon/xkbcommon.h>
+
+int
+create_xkb_keymap_fd(const char *keymap_string, size_t length) {
+  int fd = memfd_create("xkb_keymap", MFD_CLOEXEC);
+  if (fd < 0)
+    return -1;
+  if (ftruncate(fd, length) < 0) {
+    close(fd);
+    return -1;
+  }
+  void *map = mmap(nullptr, length, PROT_WRITE, MAP_SHARED, fd, 0);
+  if (map == MAP_FAILED) {
+    close(fd);
+    return -1;
+  }
+  memcpy(map, keymap_string, length);
+  munmap(map, length);
+  return fd;
+}
 
 void
 wl_seat_get_pointer(wl_client *, wl_resource *, uint32_t id);
@@ -52,7 +75,7 @@ barock::wl_seat_t::bind(wl_client *client, void *ud, uint32_t version, uint32_t 
     return;
   }
 
-  auto client_seat     = new seat_t;
+  auto client_seat     = new seat_t{};
   client_seat->wl_seat = seat;
   wl_resource_set_implementation(resource, &wl_seat_impl, client_seat, [](wl_resource *r) {
     auto seat = static_cast<seat_t *>(wl_resource_get_user_data(r));
@@ -124,6 +147,16 @@ wl_seat_get_keyboard(wl_client *client, wl_resource *seat_res, uint32_t id) {
   wl_resource_set_implementation(wl_keyboard, &wl_keyboard_impl, seat, [](wl_resource *r) {
     static_cast<barock::seat_t *>(wl_resource_get_user_data(r))->keyboard = nullptr;
   });
+
+  // Create XKB keymap
+  xkb_context *ctx           = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
+  xkb_keymap  *keymap        = xkb_keymap_new_from_names(ctx, nullptr, XKB_KEYMAP_COMPILE_NO_FLAGS);
+  char        *keymap_string = xkb_keymap_get_as_string(keymap, XKB_KEYMAP_FORMAT_TEXT_V1);
+  size_t       len           = strlen(keymap_string);
+
+  int keymap_fd = create_xkb_keymap_fd(keymap_string, len);
+
+  wl_keyboard_send_keymap(wl_keyboard, WL_KEYBOARD_KEYMAP_FORMAT_XKB_V1, keymap_fd, len);
 }
 
 void
@@ -139,9 +172,13 @@ wl_pointer_set_cursor(struct wl_client   *client,
                       int32_t             hotspot_x,
                       int32_t             hotspot_y) {
   auto seat = static_cast<barock::seat_t *>(wl_resource_get_user_data(seat_res));
-  seat->wl_seat->compositor.cursor.surface =
-    (barock::surface_t *)wl_resource_get_user_data(surface);
-  seat->wl_seat->compositor.cursor.hotspot = { hotspot_x, hotspot_y };
+  if (surface == nullptr) {
+    seat->wl_seat->compositor.cursor.surface = nullptr;
+  } else {
+    seat->wl_seat->compositor.cursor.surface =
+      (barock::surface_t *)wl_resource_get_user_data(surface);
+    seat->wl_seat->compositor.cursor.hotspot = { hotspot_x, hotspot_y };
+  }
 }
 
 void
@@ -151,5 +188,6 @@ wl_pointer_release(wl_client *, wl_resource *res) {
 
 void
 wl_keyboard_release(wl_client *, wl_resource *res) {
+  WARN("keyboard release");
   static_cast<barock::seat_t *>(wl_resource_get_user_data(res))->keyboard = nullptr;
 }

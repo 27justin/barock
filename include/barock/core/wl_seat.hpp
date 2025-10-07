@@ -15,7 +15,7 @@ namespace barock {
 
   struct seat_t {
     wl_seat_t   *wl_seat;
-    wl_resource *pointer, *keyboard, *touch;
+    wl_resource *pointer = nullptr, *keyboard = nullptr, *touch = nullptr;
     surface_t   *pointer_focus = nullptr;
   };
 

@@ -31,6 +31,8 @@ set(barock_SOURCES
   src/core/region.cpp
   src/core/wl_subcompositor.cpp
   src/core/wl_seat.cpp
+  src/core/wl_data_device_manager.cpp
+  src/core/wl_output.cpp
 
   # dmabuf
   src/dmabuf/dmabuf.cpp
@@ -63,11 +65,16 @@ generate_wayland_protocol(barock ${CMAKE_SOURCE_DIR}/protocols/linux-dmabuf-v1.x
 target_link_libraries(barock PRIVATE minidrm)
 target_link_libraries(barock PRIVATE wayland-server)
 
-# udev & libinput
+# udev & libinput & libxkbcommon
 
 pkg_check_modules(libinput REQUIRED libinput)
 target_link_libraries(barock PRIVATE ${libinput_LIBRARIES})
 target_include_directories(barock PRIVATE ${libinput_INCLUDE_DIRS})
 target_compile_options(barock PRIVATE ${libinput_CFLAGS})
+
+pkg_check_modules(xkbcommon REQUIRED xkbcommon)
+target_link_libraries(barock PRIVATE ${xkbcommon_LIBRARIES})
+target_include_directories(barock PRIVATE ${xkbcommon_INCLUDE_DIRS})
+target_compile_options(barock PRIVATE ${xkbcommon_CFLAGS})
 
 target_link_libraries(barock PRIVATE udev)

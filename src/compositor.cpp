@@ -3,6 +3,8 @@
 #include "barock/core/region.hpp"
 #include "barock/core/shm.hpp"
 #include "barock/core/wl_compositor.hpp"
+#include "barock/core/wl_data_device_manager.hpp"
+#include "barock/core/wl_output.hpp"
 #include "barock/core/wl_seat.hpp"
 #include "barock/core/wl_subcompositor.hpp"
 
@@ -40,16 +42,11 @@ namespace barock {
       compositor->frame_updates.pop();
     }
 
-    auto src = wl_event_loop_add_timer(compositor->event_loop_, frame_done_flush_callback, data);
-    // TODO: Hard coded 60 fps, we'll have to spawn a render/flush
-    // thread for each connector at the configured refresh rate.
-    wl_event_source_timer_update(src, 16);
-
     return 0;
   }
 
   compositor_t::compositor_t(minidrm::drm::handle_t drm_handle, const std::string &seat)
-    : drm_handle_(drm_handle) {
+    : drm_handle(drm_handle) {
     using std::make_unique;
     display_ = wl_display_create();
     wl_display_add_socket(display_, nullptr);
@@ -59,12 +56,14 @@ namespace barock {
     input = make_unique<input_t>(seat);
 
     // Initialize protocols
-    xdg_shell        = make_unique<xdg_shell_t>(*this);
-    wl_compositor    = make_unique<wl_compositor_t>(*this);
-    shm              = make_unique<shm_t>(display_);
-    dmabuf           = make_unique<dmabuf_t>(*this);
-    wl_subcompositor = make_unique<wl_subcompositor_t>(*this);
-    wl_seat          = make_unique<wl_seat_t>(*this);
+    xdg_shell              = make_unique<xdg_shell_t>(*this);
+    wl_compositor          = make_unique<wl_compositor_t>(*this);
+    shm                    = make_unique<shm_t>(display_);
+    dmabuf                 = make_unique<dmabuf_t>(*this);
+    wl_subcompositor       = make_unique<wl_subcompositor_t>(*this);
+    wl_seat                = make_unique<wl_seat_t>(*this);
+    wl_data_device_manager = make_unique<wl_data_device_manager_t>(*this);
+    wl_output              = make_unique<wl_output_t>(*this);
 
     cursor.x = 0.;
     cursor.y = 0.;

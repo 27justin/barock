@@ -18,26 +18,30 @@ namespace barock {
   struct input_t;
   struct wl_subcompositor_t;
   struct wl_seat_t;
+  struct wl_data_device_manager_t;
+  struct wl_output_t;
 
   class compositor_t {
     private:
     wl_display *display_;
-
-    minidrm::drm::handle_t drm_handle_;
 
     std::mutex                                           frame_updates_lock;
     std::queue<std::pair<barock::surface_t *, uint32_t>> frame_updates;
     wl_event_source                                     *frame_event_source;
 
     public:
-    wl_event_loop                      *event_loop_;
-    std::unique_ptr<xdg_shell_t>        xdg_shell;
-    std::unique_ptr<wl_compositor_t>    wl_compositor;
-    std::unique_ptr<shm_t>              shm;
-    std::unique_ptr<dmabuf_t>           dmabuf;
-    std::unique_ptr<input_t>            input;
-    std::unique_ptr<wl_subcompositor_t> wl_subcompositor;
-    std::unique_ptr<wl_seat_t>          wl_seat;
+    minidrm::drm::handle_t drm_handle;
+
+    wl_event_loop                            *event_loop_;
+    std::unique_ptr<xdg_shell_t>              xdg_shell;
+    std::unique_ptr<wl_compositor_t>          wl_compositor;
+    std::unique_ptr<shm_t>                    shm;
+    std::unique_ptr<dmabuf_t>                 dmabuf;
+    std::unique_ptr<input_t>                  input;
+    std::unique_ptr<wl_subcompositor_t>       wl_subcompositor;
+    std::unique_ptr<wl_seat_t>                wl_seat;
+    std::unique_ptr<wl_data_device_manager_t> wl_data_device_manager;
+    std::unique_ptr<wl_output_t>              wl_output;
 
     struct {
       double x;

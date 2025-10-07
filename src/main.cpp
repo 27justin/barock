@@ -25,6 +25,7 @@
 #include "log.hpp"
 
 #include <wayland-server-core.h>
+#include <wayland-util.h>
 
 #include "drm/minidrm.hpp"
 
@@ -197,6 +198,20 @@ upload_texture(barock::shm_buffer_t &buffer) {
   return texture;
 }
 
+pid_t
+run_command(std::string_view cmd) {
+  pid_t pid;
+  // /bin/sh -c "cmd"
+  const char *argv[] = { (char *)"sh", (char *)"-c", nullptr, nullptr };
+  std::string cmdstr(cmd);
+  argv[2] = const_cast<char *>(cmdstr.c_str());
+  if (posix_spawnp(&pid, "sh", NULL, NULL, const_cast<char *const *>(argv), environ) != 0) {
+    perror("posix_spawnp");
+    return -1;
+  }
+  return pid;
+}
+
 void
 draw_surface(barock::compositor_t        &compositor,
              GLuint                       program,
@@ -240,7 +255,7 @@ draw_surface(barock::compositor_t        &compositor,
     width        = buffer->width;
     height       = buffer->height;
   } else {
-    WARN("[draw_surface] surface has no role and no buffer");
+    // WARN("[draw_surface] surface has no role and no buffer");
     return;
   }
 
@@ -288,10 +303,32 @@ main() {
 
   barock::compositor_t compositor(hdl, getenv("XDG_SEAT"));
 
-  compositor.input->on_keyboard_input.connect([](const barock::keyboard_event_t &key) {
-    uint32_t scancode = libinput_event_keyboard_get_key(key.keyboard);
-    if (scancode == KEY_ESC)
+  compositor.input->on_keyboard_input.connect([&](const barock::keyboard_event_t &key) {
+    uint32_t scancode  = libinput_event_keyboard_get_key(key.keyboard);
+    uint32_t key_state = libinput_event_keyboard_get_key_state(key.keyboard);
+    if (scancode == KEY_ESC) {
       std::exit(0);
+    }
+
+    if (compositor.active_surface != nullptr) {
+      wl_client *owner = wl_resource_get_client(compositor.active_surface->wl_surface);
+      if (!compositor.wl_seat->seats.contains(owner)) {
+        return;
+      }
+
+      auto &seat = compositor.wl_seat->seats[owner];
+      if (!seat->keyboard)
+        return;
+
+      wl_keyboard_send_key(seat->keyboard, wl_display_next_serial(compositor.display()),
+                           current_time_msec(), scancode, key_state);
+      return;
+    }
+
+    if (scancode == KEY_ENTER && key_state == LIBINPUT_KEY_STATE_RELEASED) {
+      INFO("Starting terminal");
+      run_command("foot");
+    }
   });
 
   compositor.input->on_mouse_move.connect([&](const barock::mouse_event_t &move) {
@@ -331,7 +368,7 @@ main() {
 
     // Do the hit test against surfaces.
     bool hit = false;
-    for (auto const &surf : compositor.wl_compositor->surfaces) {
+    for (auto const surf : compositor.wl_compositor->surfaces) {
       if (!surf->role)
         continue;
 
@@ -388,6 +425,12 @@ main() {
               wl_pointer_send_leave(seat_map[previous]->pointer,
                                     wl_display_next_serial(compositor.display()),
                                     compositor.active_surface->wl_surface);
+
+              if (auto keyboard = seat_map[previous]->keyboard; keyboard) {
+                WARN("wl_keyboard#leave");
+                wl_keyboard_send_leave(keyboard, wl_display_next_serial(compositor.display()),
+                                       compositor.active_surface->wl_surface);
+              }
             }
           }
 
@@ -396,6 +439,17 @@ main() {
           wl_pointer_send_enter(seat->pointer, wl_display_next_serial(compositor.display()),
                                 surf->wl_surface, wl_fixed_from_int(surface_x),
                                 wl_fixed_from_int(surface_y));
+
+          if (seat->keyboard) {
+            wl_array keys;
+            wl_array_init(&keys);
+            WARN("wl_keyboard#enter");
+            wl_keyboard_send_enter(seat->keyboard, wl_display_next_serial(compositor.display()),
+                                   surf->wl_surface, &keys);
+            wl_array_release(&keys);
+            wl_keyboard_send_modifiers(seat->keyboard, wl_display_next_serial(compositor.display()),
+                                       0, 0, 0, 0);
+          }
         }
         hit = true;
         break;
@@ -410,6 +464,11 @@ main() {
         wl_pointer_send_leave(compositor.wl_seat->seats[previous]->pointer,
                               wl_display_next_serial(compositor.display()),
                               compositor.active_surface->wl_surface);
+        if (auto keyboard = compositor.wl_seat->seats[previous]->keyboard; keyboard) {
+          WARN("wl_keyboard#leave");
+          wl_keyboard_send_leave(keyboard, wl_display_next_serial(compositor.display()),
+                                 compositor.active_surface->wl_surface);
+        }
         compositor.active_surface = nullptr;
       }
     }
@@ -422,16 +481,12 @@ main() {
     wl_event_loop *loop     = wl_display_get_event_loop(display);
     static int     throttle = 0;
 
-    auto src = wl_event_loop_add_timer(loop, barock::compositor_t::frame_done_flush_callback,
-                                       (void *)&compositor);
-    wl_event_source_timer_update(src, 16);
-
     while (1) {
       // Dispatch events (fd handlers, client requests, etc.)
-      wl_event_loop_dispatch(loop, -1); // 0 = non-blocking, -1 = blocking
+      wl_event_loop_dispatch(loop, 0); // 0 = non-blocking, -1 = blocking
 
       // Dispatch frame callbacks
-      // compositor.frame_done_flush_callback(&compositor);
+      compositor.frame_done_flush_callback(&compositor);
 
       // Flush any pending Wayland client events
       wl_display_flush_clients(display);
