@@ -2,6 +2,7 @@
 
 #include "barock/core/surface.hpp"
 #include "barock/shell/xdg_surface.hpp"
+#include "barock/shell/xdg_toplevel.hpp"
 #include "barock/shell/xdg_wm_base.hpp"
 
 #include "../log.hpp"
@@ -55,8 +56,10 @@ namespace barock {
       return;
     }
 
-    auto compositor_surface = (barock::base_surface_t *)wl_resource_get_user_data(surface_result);
-    xdg_surface_t *surface  = new xdg_surface_t{ .shell = shell, .surface = compositor_surface };
+    auto compositor_surface = (barock::surface_t *)wl_resource_get_user_data(surface_result);
+
+    xdg_surface_t *surface   = new xdg_surface_t(*shell, compositor_surface);
+    compositor_surface->role = surface;
 
     // Create resource
     struct wl_resource *xdg_surface_resource = wl_resource_create(
@@ -70,6 +73,14 @@ namespace barock {
     wl_resource_set_implementation(
       xdg_surface_resource, &xdg_surface_impl, surface, [](wl_resource *resource) {
         auto surface = static_cast<xdg_surface_t *>(wl_resource_get_user_data(resource));
+        switch (surface->role) {
+          case barock::xdg_role_t::eToplevel: {
+            surface->as.toplevel->surface = nullptr;
+            break;
+          }
+          default: {
+          }
+        }
         delete surface;
       });
 

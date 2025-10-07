@@ -1,7 +1,11 @@
 #include "barock/compositor.hpp"
 
+#include "barock/core/region.hpp"
 #include "barock/core/shm.hpp"
 #include "barock/core/wl_compositor.hpp"
+#include "barock/core/wl_seat.hpp"
+#include "barock/core/wl_subcompositor.hpp"
+
 #include "barock/dmabuf/dmabuf.hpp"
 #include "barock/input.hpp"
 #include "barock/shell/xdg_wm_base.hpp"
@@ -13,7 +17,7 @@
 #include <wayland-server-core.h>
 
 namespace barock {
-  void
+  int
   compositor_t::frame_done_flush_callback(void *data) {
     barock::compositor_t *compositor = static_cast<barock::compositor_t *>(data);
 
@@ -22,19 +26,26 @@ namespace barock {
     while (!compositor->frame_updates.empty()) {
       auto &[surface, timestamp] = compositor->frame_updates.front();
 
-      if (surface->callback) {
-        wl_callback_send_done(surface->callback, timestamp);
-        wl_resource_destroy(surface->callback);
-        surface->callback = nullptr;
+      if (surface->frame_callback) {
+        wl_callback_send_done(surface->frame_callback, timestamp);
+        wl_resource_destroy(surface->frame_callback);
+        surface->frame_callback = nullptr;
       }
 
-      if (surface->buffer) {
-        wl_buffer_send_release(surface->buffer);
+      if (surface->state.buffer) {
+        wl_buffer_send_release(surface->state.buffer);
         // surface->buffer = nullptr; // optional if reused
       }
 
       compositor->frame_updates.pop();
     }
+
+    auto src = wl_event_loop_add_timer(compositor->event_loop_, frame_done_flush_callback, data);
+    // TODO: Hard coded 60 fps, we'll have to spawn a render/flush
+    // thread for each connector at the configured refresh rate.
+    wl_event_source_timer_update(src, 16);
+
+    return 0;
   }
 
   compositor_t::compositor_t(minidrm::drm::handle_t drm_handle, const std::string &seat)
@@ -48,10 +59,15 @@ namespace barock {
     input = make_unique<input_t>(seat);
 
     // Initialize protocols
-    xdg_shell     = make_unique<xdg_shell_t>(*this);
-    wl_compositor = make_unique<wl_compositor_t>(*this);
-    shm           = make_unique<shm_t>(display_);
-    dmabuf        = make_unique<dmabuf_t>(*this);
+    xdg_shell        = make_unique<xdg_shell_t>(*this);
+    wl_compositor    = make_unique<wl_compositor_t>(*this);
+    shm              = make_unique<shm_t>(display_);
+    dmabuf           = make_unique<dmabuf_t>(*this);
+    wl_subcompositor = make_unique<wl_subcompositor_t>(*this);
+    wl_seat          = make_unique<wl_seat_t>(*this);
+
+    cursor.x = 0.;
+    cursor.y = 0.;
   }
 
   compositor_t::~compositor_t() {}
@@ -68,9 +84,9 @@ namespace barock {
   }
 
   void
-  compositor_t::schedule_frame_done(base_surface_t *surface, uint32_t timestamp) {
+  compositor_t::schedule_frame_done(surface_t *surface, uint32_t timestamp) {
     std::lock_guard lock(frame_updates_lock);
-    frame_updates.push(std::pair<barock::base_surface_t *, uint32_t>(surface, timestamp));
+    frame_updates.push(std::pair<barock::surface_t *, uint32_t>(surface, timestamp));
   }
 
-}
+} // namespace barock

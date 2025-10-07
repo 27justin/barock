@@ -48,7 +48,6 @@ namespace barock {
 
     struct pollfd pollfd{ .fd = fd_, .events = POLLIN };
     if (::poll(&pollfd, 1, timeout) <= 0) {
-      WARN("libinput poll timed out");
       return 0;
     }
 
@@ -90,10 +89,16 @@ namespace barock {
           break;
         }
         case LIBINPUT_EVENT_DEVICE_ADDED: {
-          on_device_add.emit(libinput_event_get_device(event));
+          auto dev = libinput_event_get_device(event);
+          devices.push_back(dev);
+          on_device_add.emit(dev);
           break;
         }
         case LIBINPUT_EVENT_DEVICE_REMOVED: {
+          auto dev = libinput_event_get_device(event);
+          auto it  = std::find(devices.begin(), devices.end(), dev);
+          if (it != devices.end())
+            devices.erase(it);
           on_device_remove.emit();
           break;
         }

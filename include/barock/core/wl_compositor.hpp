@@ -12,8 +12,8 @@ namespace barock {
     wl_global    *global;
     compositor_t &compositor;
 
-    static constexpr uint32_t             VERSION = 6;
-    std::vector<barock::base_surface_t *> surfaces;
+    static constexpr uint32_t        VERSION = 6;
+    std::vector<barock::surface_t *> surfaces;
 
     wl_compositor_t(compositor_t &);
     ~wl_compositor_t();

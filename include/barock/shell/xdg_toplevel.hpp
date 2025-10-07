@@ -1,9 +1,9 @@
 #pragma once
 
 #include "wl/xdg-shell-protocol.h"
-
-#include "barock/core/surface.hpp"
 #include <string>
+
+#include "barock/core/signal.hpp"
 
 extern struct xdg_toplevel_interface xdg_toplevel_impl;
 
@@ -15,14 +15,14 @@ namespace barock {
     int         x, y, width, height;
   };
 
-  struct xdg_toplevel_t : public surface_role_t<xdg_toplevel_t> {
+  struct xdg_toplevel_t {
     public:
     xdg_toplevel_data_t data;
-    xdg_surface_t      &surface;
+    xdg_surface_t      *surface;
 
     signal_token_t on_buffer_attached;
 
-    xdg_toplevel_t(xdg_surface_t &, const xdg_toplevel_data_t &data);
+    xdg_toplevel_t(xdg_surface_t *, const xdg_toplevel_data_t &data);
     ~xdg_toplevel_t();
   };
 

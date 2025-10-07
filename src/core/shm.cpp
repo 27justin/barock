@@ -21,6 +21,9 @@ namespace barock {
     struct wl_resource *resource = wl_resource_create(client, &wl_shm_interface, version, id);
 
     wl_resource_set_implementation(resource, &shm_impl, NULL, NULL);
+
+    // TODO: Do we need more, or can we efficiently query what the GPU
+    // can import without manually swizzling ourselves?
     wl_shm_send_format(resource, WL_SHM_FORMAT_XRGB8888);
     wl_shm_send_format(resource, WL_SHM_FORMAT_RGBA8888);
     wl_shm_send_format(resource, WL_SHM_FORMAT_ARGB8888);

@@ -7,6 +7,15 @@
 #include <wayland-server-core.h>
 #include <wayland-server-protocol.h>
 
+namespace barock {
+  xdg_surface_t::xdg_surface_t(xdg_shell_t &parent, surface_t *base)
+    : shell(parent)
+    , surface(base)
+    , role(xdg_role_t::eNone) {
+    as.raw = nullptr;
+  }
+}
+
 /*
 assign the xdg_toplevel surface role
 
@@ -18,10 +27,10 @@ used.
 */
 void
 get_toplevel(wl_client *client, wl_resource *resource, uint32_t id) {
-  // Retrieve the base_surface_t we got from our compositor.
+  // Retrieve the surface_t we got from our compositor.
   barock::xdg_surface_t *surface = (barock::xdg_surface_t *)wl_resource_get_user_data(resource);
 
-  if (surface->surface->role != nullptr) {
+  if (surface->role != barock::xdg_role_t::eNone) {
     wl_resource_post_error(resource, WL_SURFACE_ERROR_DEFUNCT_ROLE_OBJECT,
                            "Surface role was already assigned.");
     return;
@@ -35,25 +44,27 @@ get_toplevel(wl_client *client, wl_resource *resource, uint32_t id) {
   }
 
   // Create the xdg_toplevel_t surface, this takes a reference to the
-  // base_surface_t
+  // surface_t
   barock::xdg_toplevel_t *toplevel =
-    new barock::xdg_toplevel_t(*surface, barock::xdg_toplevel_data_t{
-                                           .title  = "",
-                                           .app_id = "",
-                                           .x      = 0,
-                                           .y      = 0,
-                                           .width  = -1, // Use
-                                                         // what
-                                                         // the
-                                                         // client
-                                                         // prefers.
-                                           .height = -1,
-                                         });
+    new barock::xdg_toplevel_t(surface, barock::xdg_toplevel_data_t{
+                                          .title  = "",
+                                          .app_id = "",
+                                          .x      = 0,
+                                          .y      = 0,
+                                          .width  = -1, // Use
+                                                        // what
+                                                        // the
+                                                        // client
+                                                        // prefers.
+                                          .height = -1,
+                                        });
 
-  surface->surface->role = toplevel;
+  surface->as.toplevel = toplevel;
+  surface->role        = barock::xdg_role_t::eToplevel;
 
+  WARN("Created xdg_toplevel: {}", (void *)toplevel);
   wl_resource_set_implementation(toplevel_res, &xdg_toplevel_impl, toplevel, [](wl_resource *res) {
-    INFO("Deleting xdg_toplevel_t");
+    INFO("Deleting xdg_toplevel_t ({})", (void *)wl_resource_get_user_data(res));
     delete static_cast<barock::xdg_toplevel_t *>(wl_resource_get_user_data(res));
   });
 
@@ -77,8 +88,30 @@ ack_configure(wl_client *, wl_resource *surface, uint32_t id) {
   INFO("xdg_surface::ack_configure");
 }
 
-struct xdg_surface_interface xdg_surface_impl = { .destroy             = nullptr,
-                                                  .get_toplevel        = get_toplevel,
-                                                  .get_popup           = nullptr,
-                                                  .set_window_geometry = nullptr,
-                                                  .ack_configure       = ack_configure };
+void
+xdg_surface_set_window_geometry(wl_client   *client,
+                                wl_resource *xdg_surface_res,
+                                int32_t      x,
+                                int32_t      y,
+                                int32_t      w,
+                                int32_t      h) {
+  // The window geometry of a surface is its "visible bounds" from the
+  // user's perspective. Client-side decorations often have invisible
+  // portions like drop-shadows which should be ignored for the purposes
+  // of aligning, placing and constraining windows.
+  barock::xdg_surface_t *surface =
+    (barock::xdg_surface_t *)wl_resource_get_user_data(xdg_surface_res);
+  surface->x      = x;
+  surface->y      = y;
+  surface->width  = w;
+  surface->height = h;
+
+  INFO("xdg_surface#set_window_geometry(x = {}, y = {}, width = {}, height = {})", x, y, w, h);
+}
+
+struct xdg_surface_interface xdg_surface_impl = { .destroy      = nullptr,
+                                                  .get_toplevel = get_toplevel,
+                                                  .get_popup    = nullptr,
+                                                  .set_window_geometry =
+                                                    xdg_surface_set_window_geometry,
+                                                  .ack_configure = ack_configure };

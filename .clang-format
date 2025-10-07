@@ -39,4 +39,5 @@ AlignTrailingComments:
 AllowShortBlocksOnASingleLine: Empty  # Prevent short blocks from being on a single line
 AllowShortCaseLabelsOnASingleLine: false  # Prevent short case labels from being on a single line
 
+SortIncludes: true
 ---

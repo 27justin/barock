@@ -4,15 +4,14 @@
 #include "barock/shell/xdg_wm_base.hpp"
 
 namespace barock {
-  xdg_toplevel_t::xdg_toplevel_t(xdg_surface_t &base, const xdg_toplevel_data_t &prop_data)
-    : surface_role_t<xdg_toplevel_t>()
-    , surface(base)
+  xdg_toplevel_t::xdg_toplevel_t(xdg_surface_t *base, const xdg_toplevel_data_t &prop_data)
+    : surface(base)
     , data(prop_data) {
-    base.role        = xdg_role_t::eToplevel;
-    base.as.toplevel = this;
+    base->role        = xdg_role_t::eToplevel;
+    base->as.toplevel = this;
 
     // Attach on_buffer_attach listener to resize the window
-    on_buffer_attached = base.surface->on_buffer_attached.connect([&](const shm_buffer_t &buf) {
+    on_buffer_attached = base->surface->on_buffer_attached.connect([&](const shm_buffer_t &buf) {
       // TODO: We should only do this once, right now it auto resizes
       // to always match the buffer contents.
       data.width  = buf.width;
@@ -21,7 +20,9 @@ namespace barock {
   }
 
   xdg_toplevel_t::~xdg_toplevel_t() {
-    surface.surface->on_buffer_attached.disconnect(on_buffer_attached);
+    if (surface != nullptr) {
+      surface->surface->on_buffer_attached.disconnect(on_buffer_attached);
+    }
   }
 }
 

@@ -2,10 +2,12 @@
 
 #include "../log.hpp"
 #include "barock/compositor.hpp"
+#include "barock/core/region.hpp"
 #include "barock/core/surface.hpp"
 #include "barock/core/wl_compositor.hpp"
 #include <GLES2/gl2.h>
 #include <iostream>
+#include <wayland-server-core.h>
 
 static const struct wl_compositor_interface wl_compositor_impl = {
   .create_surface = &barock::wl_compositor_t::handle_create_surface,
@@ -47,14 +49,10 @@ namespace barock {
       return;
     }
 
-    INFO("Create surface");
-
-    barock::base_surface_t *surface = new barock::base_surface_t;
-    surface->buffer                 = nullptr;
-    surface->is_dirty               = false;
-    // TODO: Ugrh.. I hate this nomenclature
-    surface->compositor = &compositor->compositor;
-    surface->role       = nullptr;
+    barock::surface_t *surface = new barock::surface_t{};
+    surface->compositor        = &compositor->compositor;
+    surface->wl_surface        = surface_res;
+    surface->role              = nullptr;
 
     compositor->surfaces.push_back(surface);
 
@@ -63,7 +61,7 @@ namespace barock {
       surface_res, &wl_surface_impl,
       surface, // pointer to our surface object
       [](wl_resource *resource) {
-        auto surface    = (barock::base_surface_t *)wl_resource_get_user_data(resource);
+        auto surface    = (barock::surface_t *)wl_resource_get_user_data(resource);
         auto compositor = surface->compositor->wl_compositor.get();
 
         auto it = std::find(compositor->surfaces.begin(), compositor->surfaces.end(), surface);
@@ -75,8 +73,21 @@ namespace barock {
   }
 
   void
-  wl_compositor_t::handle_create_region(wl_client *, wl_resource *, uint32_t) {
-    std::cerr << "create region\n";
+  wl_compositor_t::handle_create_region(wl_client   *client,
+                                        wl_resource *wl_compositor,
+                                        uint32_t     id) {
+
+    auto wl_region =
+      wl_resource_create(client, &wl_region_interface, wl_resource_get_version(wl_compositor), id);
+    if (!wl_region) {
+      wl_client_post_no_memory(client);
+      return;
+    }
+
+    // Zero initialized
+    region_t *region = new region_t{};
+
+    wl_resource_set_implementation(wl_region, &wl_region_impl, region, nullptr);
   }
 
 };

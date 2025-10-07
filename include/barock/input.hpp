@@ -40,6 +40,8 @@ namespace barock {
     // Keyboard events
     signal_t<keyboard_event_t> on_keyboard_input;
 
+    std::vector<struct libinput_device *> devices;
+
     /// Poll for events on the libinput socket, returns number of emitted events.
     int
     poll(int timeout = -1);

@@ -28,6 +28,9 @@ set(barock_SOURCES
   src/core/surface.cpp
   src/core/shm.cpp
   src/core/shm_pool.cpp
+  src/core/region.cpp
+  src/core/wl_subcompositor.cpp
+  src/core/wl_seat.cpp
 
   # dmabuf
   src/dmabuf/dmabuf.cpp
