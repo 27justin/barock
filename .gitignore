@@ -1,5 +1,5 @@
 TAGS
 build/
 # Ignore generated wayland files
-include/wl/
-src/wl/
+include/wl
+src/wl
