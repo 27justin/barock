@@ -199,6 +199,21 @@ namespace barock {
   }
 
   void
+  compositor_t::_keyboard::send_modifiers(shared_t<resource_t<surface_t>> &surf,
+                                          uint32_t                         depressed,
+                                          uint32_t                         latched,
+                                          uint32_t                         locked,
+                                          uint32_t                         group) {
+    auto      &seats  = root->wl_seat->seats;
+    wl_client *client = surf->owner();
+
+    if (seats.contains(client) && seats[client]->keyboard) {
+      wl_keyboard_send_modifiers(seats[client]->keyboard, wl_display_next_serial(root->display()),
+                                 depressed, latched, locked, group);
+    }
+  }
+
+  void
   compositor_t::_keyboard::set_focus(shared_t<resource_t<surface_t>> surf) {
     if (auto surface = focus.lock(); surface) {
       // Send leave event

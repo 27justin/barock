@@ -29,6 +29,7 @@ namespace barock {
     compositor_t &compositor;
     wl_global    *wl_seat_global;
     wl_seat_t(compositor_t &);
+    ~wl_seat_t();
 
     static void
     bind(wl_client *, void *, uint32_t version, uint32_t id);

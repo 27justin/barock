@@ -69,6 +69,18 @@ struct wl_keyboard_interface wl_keyboard_impl{ .release = wl_keyboard_release };
 barock::wl_seat_t::wl_seat_t(barock::compositor_t &comp)
   : compositor(comp) {
   wl_seat_global = wl_global_create(comp.display(), &wl_seat_interface, VERSION, this, bind);
+
+  // Initialize the keyboard XKB state & keymap
+  comp.keyboard.xkb.context = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
+  comp.keyboard.xkb.keymap =
+    xkb_keymap_new_from_names(comp.keyboard.xkb.context, nullptr, XKB_KEYMAP_COMPILE_NO_FLAGS);
+  comp.keyboard.xkb.keymap_string =
+    xkb_keymap_get_as_string(comp.keyboard.xkb.keymap, XKB_KEYMAP_FORMAT_TEXT_V1);
+  comp.keyboard.xkb.state = xkb_state_new(comp.keyboard.xkb.keymap);
+}
+
+barock::wl_seat_t::~wl_seat_t() {
+  free(compositor.keyboard.xkb.keymap_string);
 }
 
 void
@@ -154,15 +166,11 @@ wl_seat_get_keyboard(wl_client *client, wl_resource *seat_res, uint32_t id) {
     static_cast<barock::seat_t *>(wl_resource_get_user_data(r))->keyboard = nullptr;
   });
 
-  // Create XKB keymap
-  xkb_context *ctx           = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
-  xkb_keymap  *keymap        = xkb_keymap_new_from_names(ctx, nullptr, XKB_KEYMAP_COMPILE_NO_FLAGS);
-  char        *keymap_string = xkb_keymap_get_as_string(keymap, XKB_KEYMAP_FORMAT_TEXT_V1);
-  size_t       len           = strlen(keymap_string);
-
-  int keymap_fd = create_xkb_keymap_fd(keymap_string, len);
-
-  wl_keyboard_send_keymap(wl_keyboard, WL_KEYBOARD_KEYMAP_FORMAT_XKB_V1, keymap_fd, len);
+  auto &keymap_string = seat->wl_seat->compositor.keyboard.xkb.keymap_string;
+  int   keymap_fd     = create_xkb_keymap_fd(keymap_string, strlen(keymap_string));
+  wl_keyboard_send_keymap(wl_keyboard, WL_KEYBOARD_KEYMAP_FORMAT_XKB_V1, keymap_fd,
+                          strlen(keymap_string));
+  wl_keyboard_send_repeat_info(wl_keyboard, 70, 150);
 }
 
 void

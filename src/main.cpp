@@ -7,6 +7,7 @@
 #include <memory>
 #include <signal.h>
 #include <sys/ioctl.h>
+#include <xkbcommon/xkbcommon.h>
 
 #include <cstdlib>
 #include <fcntl.h>
@@ -310,7 +311,22 @@ main() {
       std::exit(0);
     }
 
+    xkb_state_update_key(compositor.keyboard.xkb.state, scancode + 8, // +8: evdev -> xkb
+                         key_state == LIBINPUT_KEY_STATE_PRESSED ? XKB_KEY_DOWN : XKB_KEY_UP);
+
     if (auto surface = compositor.keyboard.focus.lock(); surface) {
+      xkb_mod_mask_t depressed =
+        xkb_state_serialize_mods(compositor.keyboard.xkb.state, XKB_STATE_MODS_DEPRESSED);
+      xkb_mod_mask_t latched =
+        xkb_state_serialize_mods(compositor.keyboard.xkb.state, XKB_STATE_MODS_LATCHED);
+      xkb_mod_mask_t locked =
+        xkb_state_serialize_mods(compositor.keyboard.xkb.state, XKB_STATE_MODS_LOCKED);
+      xkb_layout_index_t group =
+        xkb_state_serialize_layout(compositor.keyboard.xkb.state, XKB_STATE_LAYOUT_EFFECTIVE);
+
+      // Send the modifiers to the focused client
+      compositor.keyboard.send_modifiers(surface, depressed, latched, locked, group);
+
       compositor.keyboard.send_key(surface, scancode, key_state);
       return;
     }

@@ -10,6 +10,10 @@
 #include <mutex>
 #include <queue>
 
+struct xkb_context;
+struct xkb_keymap;
+struct xkb_state;
+
 namespace barock {
   struct xdg_shell_t;
   struct wl_compositor_t;
@@ -77,11 +81,21 @@ namespace barock {
       compositor_t                 *root;
       weak_t<resource_t<surface_t>> focus{};
 
+      struct _xkb {
+        xkb_context *context;
+        xkb_keymap  *keymap;
+        xkb_state   *state;
+        char        *keymap_string;
+      } xkb;
+
       void
       send_enter(shared_t<resource_t<surface_t>> &);
 
       void
       send_key(shared_t<resource_t<surface_t>> &, uint32_t, uint32_t);
+
+      void
+      send_modifiers(shared_t<resource_t<surface_t>> &, uint32_t, uint32_t, uint32_t, uint32_t);
 
       /// Set the focus to another surface, use nullptr to clear the focus
       void set_focus(shared_t<resource_t<surface_t>>);
