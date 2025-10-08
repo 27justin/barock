@@ -22,19 +22,13 @@
 #include "barock/input.hpp"
 #include "barock/shell/xdg_toplevel.hpp"
 #include "barock/shell/xdg_wm_base.hpp"
+#include "barock/util.hpp"
 #include "log.hpp"
 
 #include <wayland-server-core.h>
 #include <wayland-util.h>
 
 #include "drm/minidrm.hpp"
-
-uint32_t
-current_time_msec() {
-  struct timespec ts;
-  clock_gettime(CLOCK_MONOTONIC, &ts);
-  return ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
-}
 
 #define GL_CHECK                                                                                   \
   do {                                                                                             \
@@ -221,6 +215,7 @@ draw_surface(barock::compositor_t        &compositor,
              int32_t                      parent_y) {
   // We only render surfaces that have a role attached.
   int32_t x = parent_x, y = parent_y, width = 0, height = 0;
+  GLuint  texture = 0;
 
   // Check the role, we have to render different things accordingly
   if (surface.role) {
@@ -256,6 +251,7 @@ draw_surface(barock::compositor_t        &compositor,
     height       = buffer->height;
   } else {
     // WARN("[draw_surface] surface has no role and no buffer");
+    goto render_subsurfaces;
     return;
   }
 
@@ -266,7 +262,6 @@ draw_surface(barock::compositor_t        &compositor,
 
   glViewport(x, screen.mode.height() - (y + height), width, height);
   GL_CHECK;
-  GLuint texture = 0;
 
   if (surface.state.buffer) {
     barock::shm_buffer_t *buffer =
@@ -278,13 +273,14 @@ draw_surface(barock::compositor_t        &compositor,
     draw_quad(program, texture);
     GL_CHECK;
 
-    compositor.schedule_frame_done(&surface, current_time_msec());
+    compositor.schedule_frame_done(&surface, barock::current_time_msec());
     glDeleteTextures(1, &texture);
     GL_CHECK;
   }
 
+render_subsurfaces:
   for (auto &surf : surface.state.subsurfaces) {
-    draw_surface(compositor, program, *surf->surface, screen, surf->x + x, surf->y + y);
+    draw_surface(compositor, program, *surf->surface->get(), screen, surf->x + x, surf->y + y);
   }
 }
 
@@ -310,20 +306,20 @@ main() {
       std::exit(0);
     }
 
-    if (compositor.active_surface != nullptr) {
-      wl_client *owner = wl_resource_get_client(compositor.active_surface->wl_surface);
-      if (!compositor.wl_seat->seats.contains(owner)) {
-        return;
-      }
+    // if (compositor.active_surface != nullptr) {
+    //   wl_client *owner = wl_resource_get_client(compositor.active_surface->wl_surface);
+    //   if (!compositor.wl_seat->seats.contains(owner)) {
+    //     return;
+    //   }
 
-      auto &seat = compositor.wl_seat->seats[owner];
-      if (!seat->keyboard)
-        return;
+    //   auto &seat = compositor.wl_seat->seats[owner];
+    //   if (!seat->keyboard)
+    //     return;
 
-      wl_keyboard_send_key(seat->keyboard, wl_display_next_serial(compositor.display()),
-                           current_time_msec(), scancode, key_state);
-      return;
-    }
+    //   wl_keyboard_send_key(seat->keyboard, wl_display_next_serial(compositor.display()),
+    //                        barock::current_time_msec(), scancode, key_state);
+    //   return;
+    // }
 
     if (scancode == KEY_ENTER && key_state == LIBINPUT_KEY_STATE_RELEASED) {
       INFO("Starting terminal");
@@ -367,114 +363,129 @@ main() {
     // INFO("cursor:\n  x = {}\n  y = {}", compositor.cursor.x,compositor.cursor.y);
 
     // Do the hit test against surfaces.
-    bool hit = false;
-    for (auto const surf : compositor.wl_compositor->surfaces) {
-      if (!surf->role)
-        continue;
+    // bool hit = false;
+    // for (auto &surf : compositor.wl_compositor->surfaces) {
+    //   if (!surf->role)
+    //     continue;
 
-      int32_t bounds_x = 0, bounds_y = 0, w = 0, h = 0;
+    //   int32_t bounds_x = 0, bounds_y = 0, w = 0, h = 0;
 
-      if (surf->role->type_id() == barock::xdg_surface_t::id()) {
-        auto &xdg_surface = *reinterpret_cast<barock::xdg_surface_t *>(surf->role);
+    //   if (surf->role->type_id() == barock::xdg_surface_t::id()) {
+    //     auto &xdg_surface = *reinterpret_cast<barock::xdg_surface_t *>(surf->role);
 
-        switch (xdg_surface.role) {
-          case barock::xdg_role_t::eToplevel: {
-            auto &role = xdg_surface.as.toplevel->data;
+    //     switch (xdg_surface.role) {
+    //       case barock::xdg_role_t::eToplevel: {
+    //         auto &role = xdg_surface.as.toplevel->data;
 
-            // Compute bounds of window's drawable content
-            bounds_x = role.x; // + xdg_surface.x;
-            bounds_y = role.y; // + xdg_surface.y;
-            w        = role.width;
-            h        = role.height;
-            break;
-          }
-          case barock::xdg_role_t::ePopup: {
-            WARN("xdg_popup hit test not implemented.");
-            continue;
-          }
-          default:
-            continue;
-        }
-      }
-      // INFO("surface:\n  x = {}\n  y = {}\n  w = {}\n  h = {}",bounds_x,bounds_y,w,h);
+    //         // Compute bounds of window's drawable content
+    //         bounds_x = role.x; // + xdg_surface.x;
+    //         bounds_y = role.y; // + xdg_surface.y;
+    //         w        = role.width;
+    //         h        = role.height;
+    //         break;
+    //       }
+    //       case barock::xdg_role_t::ePopup: {
+    //         WARN("xdg_popup hit test not implemented.");
+    //         continue;
+    //       }
+    //       default:
+    //         continue;
+    //     }
+    //   }
+    //   // INFO("surface:\n  x = {}\n  y = {}\n  w = {}\n  h = {}",bounds_x,bounds_y,w,h);
 
-      // Check that our cursor hover over the space the client takes up.
-      if (compositor.cursor.x >= bounds_x && compositor.cursor.y >= bounds_y &&
-          compositor.cursor.x < (bounds_x + w) && compositor.cursor.y < (bounds_y + h)) {
+    //   // Check that our cursor hover over the space the client takes up.
+    //   if (compositor.cursor.x >= bounds_x && compositor.cursor.y >= bounds_y &&
+    //       compositor.cursor.x < (bounds_x + w) && compositor.cursor.y < (bounds_y + h)) {
 
-        wl_client *activated = wl_resource_get_client(surf->wl_surface);
+    //     wl_client *activated = wl_resource_get_client(surf.resource());
 
-        int surface_x = compositor.cursor.x - bounds_x;
-        int surface_y = compositor.cursor.y - bounds_y;
+    //     int surface_x = compositor.cursor.x - bounds_x;
+    //     int surface_y = compositor.cursor.y - bounds_y;
 
-        auto &seat_map = compositor.wl_seat->seats;
-        if (!seat_map.contains(activated)) {
-          WARN("No seat attached for interacting surface");
-          continue;
-        }
+    //     auto &seat_map = compositor.wl_seat->seats;
+    //     if (!seat_map.contains(activated)) {
+    //       WARN("No seat attached for interacting surface");
+    //       continue;
+    //     }
 
-        auto &seat = seat_map[activated];
-        if (compositor.active_surface == surf) {
-          wl_pointer_send_motion(seat->pointer, current_time_msec(), wl_fixed_from_int(surface_x),
-                                 wl_fixed_from_int(surface_y));
-        } else {
+    //     auto &seat = seat_map[activated];
+    //     if (compositor.active_surface == surf.get()) {
+    //       wl_pointer_send_motion(seat->pointer, barock::current_time_msec(),
+    //       wl_fixed_from_int(surface_x),
+    //                              wl_fixed_from_int(surface_y));
+    //     } else {
 
-          if (compositor.active_surface != nullptr) {
-            wl_client *previous = wl_resource_get_client(compositor.active_surface->wl_surface);
-            if (seat_map.contains(previous)) {
-              wl_pointer_send_leave(seat_map[previous]->pointer,
-                                    wl_display_next_serial(compositor.display()),
-                                    compositor.active_surface->wl_surface);
+    //       if (compositor.active_surface != nullptr) {
+    //         wl_client *previous = wl_resource_get_client(compositor.active_surface->wl_surface);
+    //         if (seat_map.contains(previous)) {
+    //           wl_pointer_send_leave(seat_map[previous]->pointer,
+    //                                 wl_display_next_serial(compositor.display()),
+    //                                 compositor.active_surface->wl_surface);
 
-              if (auto keyboard = seat_map[previous]->keyboard; keyboard) {
-                WARN("wl_keyboard#leave");
-                wl_keyboard_send_leave(keyboard, wl_display_next_serial(compositor.display()),
-                                       compositor.active_surface->wl_surface);
-              }
-            }
-          }
+    //           if (auto keyboard = seat_map[previous]->keyboard; keyboard) {
+    //             WARN("wl_keyboard#leave");
+    //             wl_keyboard_send_leave(keyboard, wl_display_next_serial(compositor.display()),
+    //                                    compositor.active_surface->wl_surface);
+    //           }
+    //         }
+    //       }
 
-          seat->pointer_focus       = surf;
-          compositor.active_surface = surf;
-          wl_pointer_send_enter(seat->pointer, wl_display_next_serial(compositor.display()),
-                                surf->wl_surface, wl_fixed_from_int(surface_x),
-                                wl_fixed_from_int(surface_y));
+    //       seat->pointer_focus       = surf.get();
+    //       compositor.active_surface = surf.get();
+    //       wl_pointer_send_enter(seat->pointer, wl_display_next_serial(compositor.display()),
+    //                             surf.resource(), wl_fixed_from_int(surface_x),
+    //                             wl_fixed_from_int(surface_y));
 
-          if (seat->keyboard) {
-            wl_array keys;
-            wl_array_init(&keys);
-            WARN("wl_keyboard#enter");
-            wl_keyboard_send_enter(seat->keyboard, wl_display_next_serial(compositor.display()),
-                                   surf->wl_surface, &keys);
-            wl_array_release(&keys);
-            wl_keyboard_send_modifiers(seat->keyboard, wl_display_next_serial(compositor.display()),
-                                       0, 0, 0, 0);
-          }
-        }
-        hit = true;
-        break;
-      }
-    }
+    //       if (seat->keyboard) {
+    //         wl_array keys;
+    //         wl_array_init(&keys);
+    //         WARN("wl_keyboard#enter");
+    //         wl_keyboard_send_enter(seat->keyboard, wl_display_next_serial(compositor.display()),
+    //                                surf.resource(), &keys);
+    //         wl_array_release(&keys);
+    //         wl_keyboard_send_modifiers(seat->keyboard,
+    //         wl_display_next_serial(compositor.display()),
+    //                                    0, 0, 0, 0);
+    //       }
+    //     }
+    //     hit = true;
+    //     break;
+    //   }
+    // }
 
-    if (!hit && compositor.active_surface) {
-      // We are not hovering any surface, if we had one active before,
-      // we send the leave event on that one.
-      wl_client *previous = wl_resource_get_client(compositor.active_surface->wl_surface);
-      if (compositor.wl_seat->seats.contains(previous)) {
-        wl_pointer_send_leave(compositor.wl_seat->seats[previous]->pointer,
-                              wl_display_next_serial(compositor.display()),
-                              compositor.active_surface->wl_surface);
-        if (auto keyboard = compositor.wl_seat->seats[previous]->keyboard; keyboard) {
-          WARN("wl_keyboard#leave");
-          wl_keyboard_send_leave(keyboard, wl_display_next_serial(compositor.display()),
-                                 compositor.active_surface->wl_surface);
-        }
-        compositor.active_surface = nullptr;
-      }
-    }
+    // if (!hit && compositor.active_surface) {
+    //   // We are not hovering any surface, if we had one active before,
+    //   // we send the leave event on that one.
+    //   wl_client *previous = wl_resource_get_client(compositor.active_surface->wl_surface);
+    //   if (compositor.wl_seat->seats.contains(previous)) {
+    //     wl_pointer_send_leave(compositor.wl_seat->seats[previous]->pointer,
+    //                           wl_display_next_serial(compositor.display()),
+    //                           compositor.active_surface->wl_surface);
+    //     if (auto keyboard = compositor.wl_seat->seats[previous]->keyboard; keyboard) {
+    //       WARN("wl_keyboard#leave");
+    //       wl_keyboard_send_leave(keyboard, wl_display_next_serial(compositor.display()),
+    //                              compositor.active_surface->wl_surface);
+    //     }
+    //     compositor.active_surface = nullptr;
+    //   }
+    // }
   });
 
-  compositor.input->on_mouse_button.connect([](const auto &btn) {});
+  compositor.input->on_mouse_button.connect([&](const auto &btn) {
+    if (auto resource = compositor.focus.pointer.lock(); resource) {
+      INFO("Pointer focus surface is still alive!");
+    }
+    // if (compositor.active_surface) {
+    //   auto &seats = compositor.wl_seat->seats;
+    //   wl_client *client = wl_resource_get_client(compositor.active_surface->wl_surface);
+    //   if (seats.contains(client) && seats[client]->pointer) {
+    //     wl_pointer_send_button(seats[client]->pointer,
+    //     wl_display_next_serial(compositor.display()), barock::barock::current_time_msec(),
+    //     btn.button, btn.state);
+    //   }
+    // }
+  });
 
   std::thread([&] {
     wl_display    *display  = compositor.display();
@@ -554,12 +565,12 @@ main() {
 
       // Iterate all surfaces...
       for (auto surface : compositor.wl_compositor->surfaces) {
-        if (!surface->role)
+        if (!surface->get()->role)
           continue;
-        if (surface->role->type_id() != barock::xdg_surface_t::id())
+        if (surface->get()->role->type_id() != barock::xdg_surface_t::id())
           continue;
 
-        draw_surface(compositor, quad_program, *surface, *screen, 0, 0);
+        draw_surface(compositor, quad_program, *surface->get(), *screen, 0, 0);
       }
 
       // Draw cursor

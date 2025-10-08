@@ -56,10 +56,11 @@ namespace barock {
       return;
     }
 
-    auto compositor_surface = (barock::surface_t *)wl_resource_get_user_data(surface_result);
+    shared_t<resource_t<surface_t>> compositor_surface =
+      *(shared_t<resource_t<surface_t>> *)wl_resource_get_user_data(surface_result);
 
-    xdg_surface_t *surface   = new xdg_surface_t(*shell, compositor_surface);
-    compositor_surface->role = surface;
+    xdg_surface_t *surface          = new xdg_surface_t(*shell, compositor_surface);
+    compositor_surface->get()->role = surface;
 
     // Create resource
     struct wl_resource *xdg_surface_resource = wl_resource_create(

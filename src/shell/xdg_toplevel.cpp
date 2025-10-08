@@ -11,17 +11,18 @@ namespace barock {
     base->as.toplevel = this;
 
     // Attach on_buffer_attach listener to resize the window
-    on_buffer_attached = base->surface->on_buffer_attached.connect([&](const shm_buffer_t &buf) {
-      // TODO: We should only do this once, right now it auto resizes
-      // to always match the buffer contents.
-      data.width  = buf.width;
-      data.height = buf.height;
-    });
+    on_buffer_attached =
+      base->surface->get()->on_buffer_attached.connect([&](const shm_buffer_t &buf) {
+        // TODO: We should only do this once, right now it auto resizes
+        // to always match the buffer contents.
+        data.width  = buf.width;
+        data.height = buf.height;
+      });
   }
 
   xdg_toplevel_t::~xdg_toplevel_t() {
     if (surface != nullptr) {
-      surface->surface->on_buffer_attached.disconnect(on_buffer_attached);
+      surface->surface->get()->on_buffer_attached.disconnect(on_buffer_attached);
     }
   }
 }

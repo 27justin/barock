@@ -1,7 +1,11 @@
-#include "barock/core/wl_seat.hpp"
-#include "../log.hpp"
 #include "barock/compositor.hpp"
 #include "barock/input.hpp"
+#include "barock/resource.hpp"
+
+#include "barock/core/wl_seat.hpp"
+
+#include "../log.hpp"
+
 #include "wl/wayland-protocol.h"
 #include <fcntl.h>
 #include <libinput.h>
@@ -9,6 +13,8 @@
 #include <unistd.h>
 #include <wayland-server-core.h>
 #include <xkbcommon/xkbcommon.h>
+
+using namespace barock;
 
 int
 create_xkb_keymap_fd(const char *keymap_string, size_t length) {
@@ -168,15 +174,16 @@ void
 wl_pointer_set_cursor(struct wl_client   *client,
                       struct wl_resource *seat_res,
                       uint32_t            serial,
-                      struct wl_resource *surface,
+                      struct wl_resource *wl_surface,
                       int32_t             hotspot_x,
                       int32_t             hotspot_y) {
   auto seat = static_cast<barock::seat_t *>(wl_resource_get_user_data(seat_res));
-  if (surface == nullptr) {
+  if (wl_surface == nullptr) {
     seat->wl_seat->compositor.cursor.surface = nullptr;
   } else {
-    seat->wl_seat->compositor.cursor.surface =
-      (barock::surface_t *)wl_resource_get_user_data(surface);
+    shared_t<resource_t<surface_t>> surface =
+      *(shared_t<resource_t<surface_t>> *)wl_resource_get_user_data(wl_surface);
+    seat->wl_seat->compositor.cursor.surface = surface->get();
     seat->wl_seat->compositor.cursor.hotspot = { hotspot_x, hotspot_y };
   }
 }

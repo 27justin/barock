@@ -3,3 +3,4 @@ build/
 # Ignore generated wayland files
 include/wl
 src/wl
+docs/

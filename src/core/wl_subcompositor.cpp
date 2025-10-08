@@ -3,12 +3,15 @@
 
 #include "barock/compositor.hpp"
 #include "barock/core/surface.hpp"
+#include "barock/resource.hpp"
 #include "wl/wayland-protocol.h"
 
 #include "../log.hpp"
 
 #include <wayland-server-core.h>
 #include <wayland-server-protocol.h>
+
+using namespace barock;
 
 void
 wl_subcompositor_destroy(wl_client *, wl_resource *);
@@ -85,10 +88,12 @@ wl_subcompositor_get_subsurface(wl_client   *client,
   // The to-be sub-surface must not already have another role, and it
   // must not have an existing wl_subsurface object. Otherwise the
   // bad_surface protocol error is raised.
-  barock::surface_t *child_surface  = (barock::surface_t *)wl_resource_get_user_data(wl_surface);
-  barock::surface_t *parent_surface = (barock::surface_t *)wl_resource_get_user_data(parent);
+  shared_t<resource_t<surface_t>> child_surface =
+    *(decltype(child_surface) *)wl_resource_get_user_data(wl_surface);
+  shared_t<resource_t<surface_t>> parent_surface =
+    *(decltype(parent_surface) *)wl_resource_get_user_data(parent);
 
-  if (child_surface->role != nullptr) {
+  if (child_surface->get()->role != nullptr) {
     wl_resource_post_error(wl_subcompositor, WL_SUBCOMPOSITOR_ERROR_BAD_SURFACE,
                            "Surface role has already been assigned");
     return;
@@ -111,7 +116,7 @@ wl_subcompositor_get_subsurface(wl_client   *client,
   // sub-surface becomes visible on the next time the state of the
   // parent surface is applied.
 
-  parent_surface->staging.subsurfaces.emplace_back(subsurface);
+  parent_surface->get()->staging.subsurfaces.emplace_back(subsurface);
 
   // Remove subsurface from wl_compositor
   auto it = std::find(compositor->surfaces.begin(), compositor->surfaces.end(), child_surface);

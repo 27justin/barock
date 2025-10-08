@@ -1,7 +1,9 @@
 #pragma once
 
-#include "../compositor.hpp"
+#include "barock/compositor.hpp"
 #include "barock/core/surface.hpp"
+#include "barock/resource.hpp"
+
 #include <cstdint>
 #include <map>
 #include <wayland-server-core.h>
@@ -15,9 +17,9 @@ namespace barock {
   enum class xdg_role_t { eToplevel, ePopup, eNone };
 
   struct xdg_surface_t : public surface_role_t<xdg_surface_t> {
-    xdg_shell_t &shell;
-    surface_t   *surface;
-    xdg_role_t   role;
+    xdg_shell_t                    &shell;
+    shared_t<resource_t<surface_t>> surface;
+    xdg_role_t                      role;
 
     int32_t x, y, width, height;
 
@@ -28,7 +30,7 @@ namespace barock {
       };
     } as;
 
-    xdg_surface_t(xdg_shell_t &parent, surface_t *base);
+    xdg_surface_t(xdg_shell_t &parent, shared_t<resource_t<surface_t>> base);
   };
 
   class xdg_shell_t {

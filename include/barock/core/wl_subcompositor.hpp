@@ -1,5 +1,7 @@
 #pragma once
 
+#include "barock/resource.hpp"
+
 #include "wl/wayland-protocol.h"
 #include <cstdint>
 #include <vector>
@@ -12,9 +14,9 @@ namespace barock {
   struct surface_t;
 
   struct subsurface_t {
-    surface_t *parent;
-    surface_t *surface;
-    int32_t    x, y;
+    shared_t<resource_t<surface_t>> parent;
+    shared_t<resource_t<surface_t>> surface;
+    int32_t                         x, y;
   };
 
   struct wl_subcompositor_t {

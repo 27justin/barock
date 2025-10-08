@@ -1,5 +1,7 @@
 #pragma once
 
+#include "barock/resource.hpp"
+
 #include "wl/wayland-protocol.h"
 #include <map>
 #include <wayland-server-protocol.h>

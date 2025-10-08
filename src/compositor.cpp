@@ -77,12 +77,6 @@ namespace barock {
   }
 
   void
-  compositor_t::run() {
-    wl_display_run(display_);
-    wl_display_destroy(display_);
-  }
-
-  void
   compositor_t::schedule_frame_done(surface_t *surface, uint32_t timestamp) {
     std::lock_guard lock(frame_updates_lock);
     frame_updates.push(std::pair<barock::surface_t *, uint32_t>(surface, timestamp));

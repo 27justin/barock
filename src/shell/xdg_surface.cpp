@@ -7,8 +7,10 @@
 #include <wayland-server-core.h>
 #include <wayland-server-protocol.h>
 
+using namespace barock;
+
 namespace barock {
-  xdg_surface_t::xdg_surface_t(xdg_shell_t &parent, surface_t *base)
+  xdg_surface_t::xdg_surface_t(xdg_shell_t &parent, shared_t<resource_t<surface_t>> base)
     : shell(parent)
     , surface(base)
     , role(xdg_role_t::eNone) {
@@ -28,9 +30,9 @@ used.
 void
 get_toplevel(wl_client *client, wl_resource *resource, uint32_t id) {
   // Retrieve the surface_t we got from our compositor.
-  barock::xdg_surface_t *surface = (barock::xdg_surface_t *)wl_resource_get_user_data(resource);
+  xdg_surface_t *surface = (xdg_surface_t *)wl_resource_get_user_data(resource);
 
-  if (surface->role != barock::xdg_role_t::eNone) {
+  if (surface->role != xdg_role_t::eNone) {
     wl_resource_post_error(resource, WL_SURFACE_ERROR_DEFUNCT_ROLE_OBJECT,
                            "Surface role was already assigned.");
     return;
@@ -45,37 +47,27 @@ get_toplevel(wl_client *client, wl_resource *resource, uint32_t id) {
 
   // Create the xdg_toplevel_t surface, this takes a reference to the
   // surface_t
-  barock::xdg_toplevel_t *toplevel =
-    new barock::xdg_toplevel_t(surface, barock::xdg_toplevel_data_t{
-                                          .title  = "",
-                                          .app_id = "",
-                                          .x      = 0,
-                                          .y      = 0,
-                                          .width  = -1, // Use
-                                                        // what
-                                                        // the
-                                                        // client
-                                                        // prefers.
-                                          .height = -1,
-                                        });
+  xdg_toplevel_t *toplevel = new xdg_toplevel_t(surface, xdg_toplevel_data_t{
+                                                           .title  = "",
+                                                           .app_id = "",
+                                                           .x      = 0,
+                                                           .y      = 0,
+                                                           .width  = -1, // Use
+                                                                         // what
+                                                                         // the
+                                                                         // client
+                                                                         // prefers.
+                                                           .height = -1,
+                                                         });
 
   surface->as.toplevel = toplevel;
-  surface->role        = barock::xdg_role_t::eToplevel;
+  surface->role        = xdg_role_t::eToplevel;
 
   WARN("Created xdg_toplevel: {}", (void *)toplevel);
   wl_resource_set_implementation(toplevel_res, &xdg_toplevel_impl, toplevel, [](wl_resource *res) {
     INFO("Deleting xdg_toplevel_t ({})", (void *)wl_resource_get_user_data(res));
-    delete static_cast<barock::xdg_toplevel_t *>(wl_resource_get_user_data(res));
+    delete static_cast<xdg_toplevel_t *>(wl_resource_get_user_data(res));
   });
-
-  // If we derive the window size from their preferred size, we wait
-  // for wl_surface#attach, then use the buffer dimensions.
-  if (toplevel->data.width == -1 && toplevel->data.height == -1) {
-    surface->surface->on_buffer_attached.connect([=](const barock::shm_buffer_t &buf) {
-      toplevel->data.width  = buf.width;
-      toplevel->data.height = buf.height;
-    });
-  }
 
   wl_array states;
   wl_array_init(&states);
@@ -99,12 +91,11 @@ xdg_surface_set_window_geometry(wl_client   *client,
   // user's perspective. Client-side decorations often have invisible
   // portions like drop-shadows which should be ignored for the purposes
   // of aligning, placing and constraining windows.
-  barock::xdg_surface_t *surface =
-    (barock::xdg_surface_t *)wl_resource_get_user_data(xdg_surface_res);
-  surface->x      = x;
-  surface->y      = y;
-  surface->width  = w;
-  surface->height = h;
+  xdg_surface_t *surface = (xdg_surface_t *)wl_resource_get_user_data(xdg_surface_res);
+  surface->x             = x;
+  surface->y             = y;
+  surface->width         = w;
+  surface->height        = h;
 
   INFO("xdg_surface#set_window_geometry(x = {}, y = {}, width = {}, height = {})", x, y, w, h);
 }

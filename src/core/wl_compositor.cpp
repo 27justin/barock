@@ -5,6 +5,7 @@
 #include "barock/core/region.hpp"
 #include "barock/core/surface.hpp"
 #include "barock/core/wl_compositor.hpp"
+#include "barock/resource.hpp"
 #include <GLES2/gl2.h>
 #include <iostream>
 #include <wayland-server-core.h>
@@ -49,27 +50,28 @@ namespace barock {
       return;
     }
 
-    barock::surface_t *surface = new barock::surface_t{};
-    surface->compositor        = &compositor->compositor;
-    surface->wl_surface        = surface_res;
-    surface->role              = nullptr;
+    auto res = create_resource<surface_t>(client, wl_surface_interface, wl_surface_impl,
+                                          wl_resource_get_version(compositor_base_res), id);
 
-    compositor->surfaces.push_back(surface);
+    (*res)->compositor = &compositor->compositor;
+    (*res)->role       = nullptr;
 
-    // Set the protocol method handlers
-    wl_resource_set_implementation(
-      surface_res, &wl_surface_impl,
-      surface, // pointer to our surface object
-      [](wl_resource *resource) {
-        auto surface    = (barock::surface_t *)wl_resource_get_user_data(resource);
-        auto compositor = surface->compositor->wl_compositor.get();
+    compositor->surfaces.push_back(res);
 
-        auto it = std::find(compositor->surfaces.begin(), compositor->surfaces.end(), surface);
-        if (it != compositor->surfaces.end())
-          compositor->surfaces.erase(it);
+    // // Set the protocol method handlers
+    // wl_resource_set_implementation(
+    //   surface_res, &wl_surface_impl,
+    //   surface, // pointer to our surface object
+    //   [](wl_resource *resource) {
+    //     auto surface    = (barock::surface_t *)wl_resource_get_user_data(resource);
+    //     auto compositor = surface->compositor->wl_compositor.get();
 
-        delete surface;
-      });
+    //     auto it = std::find(compositor->surfaces.begin(), compositor->surfaces.end(), surface);
+    //     if (it != compositor->surfaces.end())
+    //       compositor->surfaces.erase(it);
+
+    //     delete surface;
+    //   });
   }
 
   void

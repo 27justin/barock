@@ -14,6 +14,8 @@
 
 #include <utility>
 
+using namespace barock;
+
 namespace barock {
   surface_t::surface_t()
     : compositor(nullptr)
@@ -42,8 +44,9 @@ wl_surface_damage(wl_client   *client,
                   int32_t      width,
                   int32_t      height) {
 
-  barock::surface_t *surface = (barock::surface_t *)wl_resource_get_user_data(wl_surface);
-  surface->staging.damage += barock::region_t{ x, y, width, height };
+  shared_t<resource_t<surface_t>> surface =
+    *(shared_t<resource_t<surface_t>> *)wl_resource_get_user_data(wl_surface);
+  surface->get()->staging.damage += barock::region_t{ x, y, width, height };
 }
 
 void
@@ -54,27 +57,29 @@ wl_surface_damage_buffer(wl_client   *client,
                          int32_t      width,
                          int32_t      height) {
   // TODO: Figure out the coordinate difference between `damage` and `damage_buffer`
-  barock::surface_t *surface = (barock::surface_t *)wl_resource_get_user_data(wl_surface);
-  surface->staging.damage += barock::region_t{ x, y, width, height };
+  shared_t<resource_t<surface_t>> surface =
+    *(shared_t<resource_t<surface_t>> *)wl_resource_get_user_data(wl_surface);
+  surface->get()->staging.damage += barock::region_t{ x, y, width, height };
 }
 
 void
 wl_surface_commit(wl_client *client, wl_resource *wl_surface) {
-  // INFO("commit surface changes");
-  barock::surface_t *surface = (barock::surface_t *)wl_resource_get_user_data(wl_surface);
+  shared_t<resource_t<surface_t>> surface =
+    *(shared_t<resource_t<surface_t>> *)wl_resource_get_user_data(wl_surface);
 
-  barock::surface_state_t old_state = surface->state;
-  surface->state                    = surface->staging;
+  barock::surface_state_t old_state = surface->get()->state;
+  surface->get()->state             = surface->get()->staging;
 
-  if (old_state.buffer != surface->state.buffer) {
+  if (old_state.buffer != surface->get()->state.buffer) {
     barock::shm_buffer_t *buffer =
-      (barock::shm_buffer_t *)wl_resource_get_user_data(surface->state.buffer);
-    surface->on_buffer_attached.emit(*buffer);
+      (barock::shm_buffer_t *)wl_resource_get_user_data(surface->get()->state.buffer);
+    surface->get()->on_buffer_attached.emit(*buffer);
   }
 
-  surface->staging = barock::surface_state_t{ // Copy our subsurfaces, those are persistent
-                                              .subsurfaces = surface->state.subsurfaces
-  };
+  surface->get()->staging =
+    barock::surface_state_t{ // Copy our subsurfaces, those are persistent
+                             .subsurfaces = surface->get()->state.subsurfaces
+    };
 }
 
 void
@@ -82,9 +87,10 @@ wl_surface_destroy(wl_client *client, wl_resource *wl_surface) {
   // Destroying the surface is only allowed, once the client destroyed
   // all resources that build on this surface. (xdg surfaces, etc.)
   WARN("wl_surface#destroy");
-  barock::surface_t *surface = (barock::surface_t *)wl_resource_get_user_data(wl_surface);
+  shared_t<resource_t<surface_t>> surface =
+    *(shared_t<resource_t<surface_t>> *)wl_resource_get_user_data(wl_surface);
 
-  if (surface->role != nullptr) {
+  if (surface->get()->role != nullptr) {
     wl_resource_post_error(wl_surface, WL_SURFACE_ERROR_DEFUNCT_ROLE_OBJECT,
                            "Surface has active role assigned, destroy that first.");
     return;
@@ -95,17 +101,20 @@ wl_surface_destroy(wl_client *client, wl_resource *wl_surface) {
 
 void
 wl_surface_frame(wl_client *client, wl_resource *wl_surface, uint32_t callback) {
-  barock::surface_t *surface = (barock::surface_t *)wl_resource_get_user_data(wl_surface);
+  shared_t<resource_t<surface_t>> surface =
+    *(shared_t<resource_t<surface_t>> *)wl_resource_get_user_data(wl_surface);
 
   wl_resource *callback_res = wl_resource_create(client, &wl_callback_interface,
                                                  wl_resource_get_version(wl_surface), callback);
-  wl_resource_set_implementation(callback_res, nullptr, surface, [](wl_resource *res) {
-    auto *surface = static_cast<barock::surface_t *>(wl_resource_get_user_data(res));
-    if (surface->frame_callback == res)
-      surface->frame_callback = nullptr; // prevent dangling ptr
-  });
+  wl_resource_set_implementation(
+    callback_res, nullptr, wl_resource_get_user_data(wl_surface), [](wl_resource *res) {
+      shared_t<resource_t<surface_t>> surface =
+        *(shared_t<resource_t<surface_t>> *)wl_resource_get_user_data(res);
+      if (surface->get()->frame_callback == res)
+        surface->get()->frame_callback = nullptr; // prevent dangling ptr
+    });
 
-  surface->frame_callback = callback_res;
+  surface->get()->frame_callback = callback_res;
 }
 
 void
@@ -115,55 +124,61 @@ wl_surface_attach(wl_client   *client,
                   int32_t      x,
                   int32_t      y) {
   barock::shm_buffer_t *shm_buffer = (barock::shm_buffer_t *)wl_resource_get_user_data(buffer);
-  barock::surface_t    *surface    = (barock::surface_t *)wl_resource_get_user_data(wl_surface);
+  shared_t<resource_t<surface_t>> surface =
+    *(shared_t<resource_t<surface_t>> *)wl_resource_get_user_data(wl_surface);
   // Buffers are double-buffered
-  surface->staging.buffer = buffer;
+  surface->get()->staging.buffer = buffer;
 }
 
 void
 wl_surface_set_opaque_region(wl_client *, wl_resource *wl_surface, wl_resource *wl_region) {
-  barock::surface_t *surface = (barock::surface_t *)wl_resource_get_user_data(wl_surface);
+  shared_t<resource_t<surface_t>> surface =
+    *(shared_t<resource_t<surface_t>> *)wl_resource_get_user_data(wl_surface);
 
   if (wl_region != nullptr) {
-    barock::region_t *region = (barock::region_t *)wl_resource_get_user_data(wl_region);
-    surface->staging.opaque  = *region;
+    barock::region_t *region       = (barock::region_t *)wl_resource_get_user_data(wl_region);
+    surface->get()->staging.opaque = *region;
   } else {
     // A NULL wl_region causes the pending opaque region to be set to
     // empty.
-    surface->staging.opaque = barock::region_t{};
+    surface->get()->staging.opaque = barock::region_t{};
   }
 }
 
 void
 wl_surface_set_input_region(wl_client *, wl_resource *wl_surface, wl_resource *wl_region) {
-  barock::surface_t *surface = (barock::surface_t *)wl_resource_get_user_data(wl_surface);
+  shared_t<resource_t<surface_t>> surface =
+    *(shared_t<resource_t<surface_t>> *)wl_resource_get_user_data(wl_surface);
 
   if (wl_region != nullptr) {
-    barock::region_t *region = (barock::region_t *)wl_resource_get_user_data(wl_region);
-    surface->staging.input   = *region;
+    barock::region_t *region      = (barock::region_t *)wl_resource_get_user_data(wl_region);
+    surface->get()->staging.input = *region;
   } else {
     // A NULL wl_region causes the input region to be set to infinite.
-    surface->staging.opaque = barock::region_t::infinite;
+    surface->get()->staging.opaque = barock::region_t::infinite;
   }
 }
 
 void
 wl_surface_set_buffer_transform(wl_client *, wl_resource *wl_surface, int32_t transform) {
-  barock::surface_t *surface = (barock::surface_t *)wl_resource_get_user_data(wl_surface);
-  surface->staging.transform = transform;
+  shared_t<resource_t<surface_t>> surface =
+    *(shared_t<resource_t<surface_t>> *)wl_resource_get_user_data(wl_surface);
+  surface->get()->staging.transform = transform;
 }
 
 void
 wl_surface_set_buffer_scale(wl_client *, wl_resource *wl_surface, int32_t scale) {
-  barock::surface_t *surface = (barock::surface_t *)wl_resource_get_user_data(wl_surface);
-  surface->staging.scale     = scale;
+  shared_t<resource_t<surface_t>> surface =
+    *(shared_t<resource_t<surface_t>> *)wl_resource_get_user_data(wl_surface);
+  surface->get()->staging.scale = scale;
 }
 
 void
 wl_surface_offset(wl_client *, wl_resource *wl_surface, int32_t x, int32_t y) {
-  barock::surface_t *surface = (barock::surface_t *)wl_resource_get_user_data(wl_surface);
-  surface->staging.offset.x  = x;
-  surface->staging.offset.y  = y;
+  shared_t<resource_t<surface_t>> surface =
+    *(shared_t<resource_t<surface_t>> *)wl_resource_get_user_data(wl_surface);
+  surface->get()->staging.offset.x = x;
+  surface->get()->staging.offset.y = y;
 }
 
 struct wl_surface_interface wl_surface_impl = { .destroy           = wl_surface_destroy,

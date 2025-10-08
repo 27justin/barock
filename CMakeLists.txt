@@ -17,6 +17,9 @@ set(barock_SOURCES
   src/compositor.cpp
   src/log.cpp
 
+  # util
+  src/util.cpp
+
   # input
   src/input.cpp
 

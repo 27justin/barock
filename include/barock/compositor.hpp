@@ -4,6 +4,7 @@
 #include <wayland-server.h>
 
 #include "../drm/minidrm.hpp"
+#include "resource.hpp"
 
 #include <memory>
 #include <mutex>
@@ -51,16 +52,19 @@ namespace barock {
       } hotspot;
       surface_t *surface;
     } cursor;
-    surface_t *active_surface;
+
+    struct {
+      weak_t<resource_t<surface_t>> keyboard, pointer;
+    } focus;
 
     compositor_t(minidrm::drm::handle_t drm_handle, const std::string &seat);
     ~compositor_t();
 
     void
-    run();
+    surface_focus_pointer();
 
-    int
-    redraw();
+    void
+    surface_focus_keyboard();
 
     wl_display *
     display();
