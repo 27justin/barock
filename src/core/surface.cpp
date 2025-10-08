@@ -34,6 +34,34 @@ namespace barock {
     , frame_callback(std::exchange(other.frame_callback, nullptr))
     , state(std::exchange(other.state, {}))
     , staging(std::exchange(other.staging, {})) {}
+
+  void
+  surface_t::extent(int32_t &x, int32_t &y, int32_t &width, int32_t &height) const {
+    x      = 0;
+    y      = 0;
+    width  = 0;
+    height = 0;
+    if (role && role->type_id() == barock::xdg_surface_t::id()) {
+      auto &xdg_surface = *reinterpret_cast<barock::xdg_surface_t *>(role);
+
+      switch (xdg_surface.role) {
+        case barock::xdg_role_t::eToplevel: {
+          auto &role = xdg_surface.as.toplevel->data;
+
+          // Compute bounds of window's drawable content
+          x      = role.x + xdg_surface.x;
+          y      = role.y + xdg_surface.y;
+          width  = role.width;
+          height = role.height;
+          break;
+        }
+        case barock::xdg_role_t::ePopup: {
+          WARN("surface_t#extent not implemented for role xdg_popup.");
+          return;
+        }
+      }
+    }
+  }
 }
 
 void

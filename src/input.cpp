@@ -2,8 +2,9 @@
 #include "log.hpp"
 #include <fcntl.h>
 #include <libinput.h>
-#include <memory>
+#include <linux/input.h>
 #include <stdexcept>
+#include <sys/ioctl.h>
 #include <sys/poll.h>
 #include <unistd.h>
 
@@ -14,6 +15,7 @@ open_restriced(const char *path, int flags, void *ud) {
     ERROR("Failed to open libinput device '{}': {}", path, strerror(errno));
     throw std::runtime_error("Failed to open libinput device");
   }
+  ioctl(fd, EVIOCGRAB, 1);
   return fd;
 }
 

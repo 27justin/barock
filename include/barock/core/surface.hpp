@@ -78,6 +78,9 @@ namespace barock {
 
     void
     operator=(const surface_t &) = delete;
+
+    void
+    extent(int32_t &, int32_t &, int32_t &, int32_t &) const;
   };
 
 };

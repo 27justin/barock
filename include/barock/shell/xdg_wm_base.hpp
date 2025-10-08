@@ -23,7 +23,7 @@ namespace barock {
 
     int32_t x, y, width, height;
 
-    struct {
+    struct _unary {
       union {
         xdg_toplevel_t *toplevel;
         void           *raw;

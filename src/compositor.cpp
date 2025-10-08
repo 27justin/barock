@@ -1,4 +1,5 @@
 #include "barock/compositor.hpp"
+#include "barock/util.hpp"
 
 #include "barock/core/region.hpp"
 #include "barock/core/shm.hpp"
@@ -17,6 +18,7 @@
 #include <cstdint>
 #include <wayland-egl-backend.h>
 #include <wayland-server-core.h>
+#include <wayland-util.h>
 
 namespace barock {
   int
@@ -67,6 +69,9 @@ namespace barock {
 
     cursor.x = 0.;
     cursor.y = 0.;
+
+    pointer.root  = this;
+    keyboard.root = this;
   }
 
   compositor_t::~compositor_t() {}
@@ -80,6 +85,134 @@ namespace barock {
   compositor_t::schedule_frame_done(surface_t *surface, uint32_t timestamp) {
     std::lock_guard lock(frame_updates_lock);
     frame_updates.push(std::pair<barock::surface_t *, uint32_t>(surface, timestamp));
+  }
+
+  void
+  compositor_t::_pointer::send_enter(shared_t<resource_t<surface_t>> &surf) {
+    auto      &seats  = root->wl_seat->seats;
+    wl_client *client = surf->owner();
+
+    int32_t x, y, w, h;
+    surf->get()->extent(x, y, w, h);
+
+    double local_x{}, local_y{};
+    local_x = root->cursor.x - x;
+    local_y = root->cursor.y - y;
+
+    // Figure out whether the client has
+    // A.) A `wl_seat` configured.
+    // B.) A `wl_pointer` attached to that `wl_seat`.
+    if (seats.contains(client) && seats[client]->pointer) {
+      wl_pointer_send_enter(seats[client]->pointer, wl_display_next_serial(root->display()),
+                            surf->resource(), wl_fixed_from_double(local_x),
+                            wl_fixed_from_double(local_y));
+    }
+  }
+
+  void
+  compositor_t::_pointer::send_leave(shared_t<resource_t<surface_t>> &surf) {
+    auto      &seats  = root->wl_seat->seats;
+    wl_client *client = surf->owner();
+
+    if (seats.contains(client) && seats[client]->pointer) {
+      wl_pointer_send_leave(seats[client]->pointer, wl_display_next_serial(root->display()),
+                            surf->resource());
+    }
+  }
+
+  void
+  compositor_t::_pointer::send_button(shared_t<resource_t<surface_t>> &surf,
+                                      uint32_t                         button,
+                                      uint32_t                         state) {
+    auto      &seats  = root->wl_seat->seats;
+    wl_client *client = surf->owner();
+
+    if (seats.contains(client) && seats[client]->pointer) {
+      wl_pointer_send_button(seats[client]->pointer, wl_display_next_serial(root->display()),
+                             current_time_msec(), button, state);
+    }
+  }
+
+  void
+  compositor_t::_pointer::send_motion(shared_t<resource_t<surface_t>> &surf) {
+    auto      &seats  = root->wl_seat->seats;
+    wl_client *client = surf->owner();
+
+    if (seats.contains(client) && seats[client]->pointer) {
+      int32_t x, y, w, h;
+      surf->get()->extent(x, y, w, h);
+
+      double local_x{}, local_y{};
+      local_x = root->cursor.x - x;
+      local_y = root->cursor.y - y;
+
+      wl_pointer_send_motion(seats[client]->pointer, current_time_msec(),
+                             wl_fixed_from_double(local_x), wl_fixed_from_double(local_y));
+    }
+  }
+
+  void
+  compositor_t::_pointer::set_focus(shared_t<resource_t<surface_t>> surf) {
+    if (auto surface = focus.lock(); surface) {
+      // Send leave event
+      auto      &seats  = root->wl_seat->seats;
+      wl_client *client = surface->owner();
+      if (seats.contains(client) && seats[client]->pointer) {
+        wl_pointer_send_leave(seats[client]->pointer, wl_display_next_serial(root->display()),
+                              surface->resource());
+      }
+    }
+
+    focus = surf;
+    if (surf)
+      send_enter(surf);
+  }
+
+  void
+  compositor_t::_keyboard::send_enter(shared_t<resource_t<surface_t>> &surf) {
+    auto      &seats  = root->wl_seat->seats;
+    wl_client *client = surf->owner();
+
+    // Figure out whether the client has
+    // A.) A `wl_seat` configured.
+    // B.) A `wl_keyboard` attached to that `wl_seat`.
+    if (seats.contains(client) && seats[client]->keyboard) {
+      wl_array keys;
+      wl_array_init(&keys);
+      wl_keyboard_send_enter(seats[client]->keyboard, wl_display_next_serial(root->display()),
+                             surf->resource(), &keys);
+      wl_array_release(&keys);
+    }
+  }
+
+  void
+  compositor_t::_keyboard::send_key(shared_t<resource_t<surface_t>> &surf,
+                                    uint32_t                         key,
+                                    uint32_t                         state) {
+    auto      &seats  = root->wl_seat->seats;
+    wl_client *client = surf->owner();
+
+    if (seats.contains(client) && seats[client]->keyboard) {
+      wl_keyboard_send_key(seats[client]->keyboard, wl_display_next_serial(root->display()),
+                           current_time_msec(), key, state);
+    }
+  }
+
+  void
+  compositor_t::_keyboard::set_focus(shared_t<resource_t<surface_t>> surf) {
+    if (auto surface = focus.lock(); surface) {
+      // Send leave event
+      auto      &seats  = root->wl_seat->seats;
+      wl_client *client = surface->owner();
+      if (seats.contains(client) && seats[client]->keyboard) {
+        wl_keyboard_send_leave(seats[client]->keyboard, wl_display_next_serial(root->display()),
+                               surface->resource());
+      }
+    }
+
+    focus = surf;
+    if (surf) // handle nullptr (no focus)
+      send_enter(surf);
   }
 
 } // namespace barock

@@ -50,8 +50,8 @@ namespace barock {
       return;
     }
 
-    auto res = create_resource<surface_t>(client, wl_surface_interface, wl_surface_impl,
-                                          wl_resource_get_version(compositor_base_res), id);
+    auto res = make_resource<surface_t>(client, wl_surface_interface, wl_surface_impl,
+                                        wl_resource_get_version(compositor_base_res), id);
 
     (*res)->compositor = &compositor->compositor;
     (*res)->role       = nullptr;

@@ -53,18 +53,42 @@ namespace barock {
       surface_t *surface;
     } cursor;
 
-    struct {
-      weak_t<resource_t<surface_t>> keyboard, pointer;
-    } focus;
+    struct _pointer {
+      compositor_t                 *root;
+      weak_t<resource_t<surface_t>> focus{};
+
+      void
+      send_enter(shared_t<resource_t<surface_t>> &);
+
+      void
+      send_button(shared_t<resource_t<surface_t>> &, uint32_t, uint32_t);
+
+      void
+      send_motion(shared_t<resource_t<surface_t>> &);
+
+      void
+      send_leave(shared_t<resource_t<surface_t>> &);
+
+      /// Set the focus to another surface, use nullptr to clear the focus
+      void set_focus(shared_t<resource_t<surface_t>>);
+    } pointer;
+
+    struct _keyboard {
+      compositor_t                 *root;
+      weak_t<resource_t<surface_t>> focus{};
+
+      void
+      send_enter(shared_t<resource_t<surface_t>> &);
+
+      void
+      send_key(shared_t<resource_t<surface_t>> &, uint32_t, uint32_t);
+
+      /// Set the focus to another surface, use nullptr to clear the focus
+      void set_focus(shared_t<resource_t<surface_t>>);
+    } keyboard;
 
     compositor_t(minidrm::drm::handle_t drm_handle, const std::string &seat);
     ~compositor_t();
-
-    void
-    surface_focus_pointer();
-
-    void
-    surface_focus_keyboard();
 
     wl_display *
     display();

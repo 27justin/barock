@@ -2,7 +2,11 @@
 #include <GLES2/gl2ext.h>
 #include <iostream>
 #include <libudev.h>
+#include <linux/kd.h>
+#include <linux/vt.h>
 #include <memory>
+#include <signal.h>
+#include <sys/ioctl.h>
 
 #include <cstdlib>
 #include <fcntl.h>
@@ -306,20 +310,10 @@ main() {
       std::exit(0);
     }
 
-    // if (compositor.active_surface != nullptr) {
-    //   wl_client *owner = wl_resource_get_client(compositor.active_surface->wl_surface);
-    //   if (!compositor.wl_seat->seats.contains(owner)) {
-    //     return;
-    //   }
-
-    //   auto &seat = compositor.wl_seat->seats[owner];
-    //   if (!seat->keyboard)
-    //     return;
-
-    //   wl_keyboard_send_key(seat->keyboard, wl_display_next_serial(compositor.display()),
-    //                        barock::current_time_msec(), scancode, key_state);
-    //   return;
-    // }
+    if (auto surface = compositor.keyboard.focus.lock(); surface) {
+      compositor.keyboard.send_key(surface, scancode, key_state);
+      return;
+    }
 
     if (scancode == KEY_ENTER && key_state == LIBINPUT_KEY_STATE_RELEASED) {
       INFO("Starting terminal");
@@ -342,6 +336,7 @@ main() {
     // Therefore to correctly handle these two cases, we query all
     // active monitors for their size, and from that compute a
     // relative cursor position.
+    auto &cursor = compositor.cursor;
 
     if (ty == LIBINPUT_EVENT_POINTER_MOTION_ABSOLUTE) {
       uint32_t sx = 0, sy = 0;
@@ -350,141 +345,61 @@ main() {
         sy = std::max(sy, s->mode.height());
       }
 
-      compositor.cursor.x = libinput_event_pointer_get_absolute_x_transformed(move.pointer, sx);
-      compositor.cursor.y = libinput_event_pointer_get_absolute_y_transformed(move.pointer, sy);
+      cursor.x = libinput_event_pointer_get_absolute_x_transformed(move.pointer, sx);
+      cursor.y = libinput_event_pointer_get_absolute_y_transformed(move.pointer, sy);
     } else {
       // Relative (delta) movement, just add this onto our position.
-      compositor.cursor.x += libinput_event_pointer_get_dx(move.pointer);
-      compositor.cursor.y += libinput_event_pointer_get_dy(move.pointer);
-      compositor.cursor.y = std::max(compositor.cursor.y, 0.);
-      compositor.cursor.x = std::max(compositor.cursor.x, 0.);
+      cursor.x += libinput_event_pointer_get_dx(move.pointer);
+      cursor.y += libinput_event_pointer_get_dy(move.pointer);
+      cursor.y = std::max(cursor.y, 0.);
+      cursor.x = std::max(cursor.x, 0.);
     }
 
-    // INFO("cursor:\n  x = {}\n  y = {}", compositor.cursor.x,compositor.cursor.y);
+    // Send mouse motion event to active window (or focus a new window with our pointer)
+    int32_t x, y, w, h;
+    if (auto surface = compositor.pointer.focus.lock(); surface) {
+      // Surface is still alive
+      surface->get()->extent(x, y, w, h);
 
-    // Do the hit test against surfaces.
-    // bool hit = false;
-    // for (auto &surf : compositor.wl_compositor->surfaces) {
-    //   if (!surf->role)
-    //     continue;
+      // Check if we are still within the surface bounds.
+      if (!(cursor.x >= x && cursor.x < x + w && cursor.y >= y && cursor.y < y + h)) {
+        compositor.pointer.set_focus(nullptr);
+        WARN("Pointer left previous focused surface, searching for new one.");
+        goto focus_new_surface;
+      }
+      compositor.pointer.send_motion(surface);
+      return;
+    }
 
-    //   int32_t bounds_x = 0, bounds_y = 0, w = 0, h = 0;
+  focus_new_surface:
+    INFO("Trying to focus new surface.");
+    for (auto &surf : compositor.wl_compositor->surfaces) {
+      // Compute the position of the surface
+      surf->get()->extent(x, y, w, h);
 
-    //   if (surf->role->type_id() == barock::xdg_surface_t::id()) {
-    //     auto &xdg_surface = *reinterpret_cast<barock::xdg_surface_t *>(surf->role);
-
-    //     switch (xdg_surface.role) {
-    //       case barock::xdg_role_t::eToplevel: {
-    //         auto &role = xdg_surface.as.toplevel->data;
-
-    //         // Compute bounds of window's drawable content
-    //         bounds_x = role.x; // + xdg_surface.x;
-    //         bounds_y = role.y; // + xdg_surface.y;
-    //         w        = role.width;
-    //         h        = role.height;
-    //         break;
-    //       }
-    //       case barock::xdg_role_t::ePopup: {
-    //         WARN("xdg_popup hit test not implemented.");
-    //         continue;
-    //       }
-    //       default:
-    //         continue;
-    //     }
-    //   }
-    //   // INFO("surface:\n  x = {}\n  y = {}\n  w = {}\n  h = {}",bounds_x,bounds_y,w,h);
-
-    //   // Check that our cursor hover over the space the client takes up.
-    //   if (compositor.cursor.x >= bounds_x && compositor.cursor.y >= bounds_y &&
-    //       compositor.cursor.x < (bounds_x + w) && compositor.cursor.y < (bounds_y + h)) {
-
-    //     wl_client *activated = wl_resource_get_client(surf.resource());
-
-    //     int surface_x = compositor.cursor.x - bounds_x;
-    //     int surface_y = compositor.cursor.y - bounds_y;
-
-    //     auto &seat_map = compositor.wl_seat->seats;
-    //     if (!seat_map.contains(activated)) {
-    //       WARN("No seat attached for interacting surface");
-    //       continue;
-    //     }
-
-    //     auto &seat = seat_map[activated];
-    //     if (compositor.active_surface == surf.get()) {
-    //       wl_pointer_send_motion(seat->pointer, barock::current_time_msec(),
-    //       wl_fixed_from_int(surface_x),
-    //                              wl_fixed_from_int(surface_y));
-    //     } else {
-
-    //       if (compositor.active_surface != nullptr) {
-    //         wl_client *previous = wl_resource_get_client(compositor.active_surface->wl_surface);
-    //         if (seat_map.contains(previous)) {
-    //           wl_pointer_send_leave(seat_map[previous]->pointer,
-    //                                 wl_display_next_serial(compositor.display()),
-    //                                 compositor.active_surface->wl_surface);
-
-    //           if (auto keyboard = seat_map[previous]->keyboard; keyboard) {
-    //             WARN("wl_keyboard#leave");
-    //             wl_keyboard_send_leave(keyboard, wl_display_next_serial(compositor.display()),
-    //                                    compositor.active_surface->wl_surface);
-    //           }
-    //         }
-    //       }
-
-    //       seat->pointer_focus       = surf.get();
-    //       compositor.active_surface = surf.get();
-    //       wl_pointer_send_enter(seat->pointer, wl_display_next_serial(compositor.display()),
-    //                             surf.resource(), wl_fixed_from_int(surface_x),
-    //                             wl_fixed_from_int(surface_y));
-
-    //       if (seat->keyboard) {
-    //         wl_array keys;
-    //         wl_array_init(&keys);
-    //         WARN("wl_keyboard#enter");
-    //         wl_keyboard_send_enter(seat->keyboard, wl_display_next_serial(compositor.display()),
-    //                                surf.resource(), &keys);
-    //         wl_array_release(&keys);
-    //         wl_keyboard_send_modifiers(seat->keyboard,
-    //         wl_display_next_serial(compositor.display()),
-    //                                    0, 0, 0, 0);
-    //       }
-    //     }
-    //     hit = true;
-    //     break;
-    //   }
-    // }
-
-    // if (!hit && compositor.active_surface) {
-    //   // We are not hovering any surface, if we had one active before,
-    //   // we send the leave event on that one.
-    //   wl_client *previous = wl_resource_get_client(compositor.active_surface->wl_surface);
-    //   if (compositor.wl_seat->seats.contains(previous)) {
-    //     wl_pointer_send_leave(compositor.wl_seat->seats[previous]->pointer,
-    //                           wl_display_next_serial(compositor.display()),
-    //                           compositor.active_surface->wl_surface);
-    //     if (auto keyboard = compositor.wl_seat->seats[previous]->keyboard; keyboard) {
-    //       WARN("wl_keyboard#leave");
-    //       wl_keyboard_send_leave(keyboard, wl_display_next_serial(compositor.display()),
-    //                              compositor.active_surface->wl_surface);
-    //     }
-    //     compositor.active_surface = nullptr;
-    //   }
-    // }
+      if (cursor.x >= x && cursor.x < x + w && cursor.y >= y && cursor.y < y + h) {
+        // Found a new surface, we'll focus it with keyboard
+        // (mouse focus is done by `on_mouse_move`)
+        compositor.pointer.set_focus(surf);
+        break;
+      }
+    }
   });
 
   compositor.input->on_mouse_button.connect([&](const auto &btn) {
-    if (auto resource = compositor.focus.pointer.lock(); resource) {
-      INFO("Pointer focus surface is still alive!");
+    int32_t x, y, width, height;
+    auto   &cursor = compositor.cursor;
+
+    if (auto surface = compositor.pointer.focus.lock(); surface) {
+      compositor.pointer.send_button(surface, btn.button, btn.state);
+
+      if (btn.button == BTN_LEFT) {
+        if (compositor.keyboard.focus != surface) {
+          compositor.keyboard.set_focus(surface);
+        }
+      }
+      return;
     }
-    // if (compositor.active_surface) {
-    //   auto &seats = compositor.wl_seat->seats;
-    //   wl_client *client = wl_resource_get_client(compositor.active_surface->wl_surface);
-    //   if (seats.contains(client) && seats[client]->pointer) {
-    //     wl_pointer_send_button(seats[client]->pointer,
-    //     wl_display_next_serial(compositor.display()), barock::barock::current_time_msec(),
-    //     btn.button, btn.state);
-    //   }
-    // }
   });
 
   std::thread([&] {
