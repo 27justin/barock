@@ -57,36 +57,26 @@ namespace barock {
     }
 
     shared_t<resource_t<surface_t>> compositor_surface =
-      *(shared_t<resource_t<surface_t>> *)wl_resource_get_user_data(surface_result);
+      from_wl_resource<surface_t>(surface_result);
 
-    xdg_surface_t *surface          = new xdg_surface_t(*shell, compositor_surface);
-    compositor_surface->get()->role = surface;
+    auto xdg_surface = make_resource<xdg_surface_t>(client, xdg_surface_interface, xdg_surface_impl,
+                                                    wl_resource_get_version(wm_base_resource), id,
+                                                    *shell, compositor_surface);
+    compositor_surface->get()->role = xdg_surface->get();
 
-    // Create resource
-    struct wl_resource *xdg_surface_resource = wl_resource_create(
-      client, &xdg_surface_interface, wl_resource_get_version(wm_base_resource), id);
-
-    if (!xdg_surface_resource) {
-      wl_client_post_no_memory(client);
-      return;
-    }
-
-    wl_resource_set_implementation(
-      xdg_surface_resource, &xdg_surface_impl, surface, [](wl_resource *resource) {
-        auto surface = static_cast<xdg_surface_t *>(wl_resource_get_user_data(resource));
-        switch (surface->role) {
-          case barock::xdg_role_t::eToplevel: {
-            surface->as.toplevel->surface = nullptr;
-            break;
-          }
-          default: {
-          }
+    xdg_surface->on_destroy.connect([xdg_surface](auto) {
+      switch (xdg_surface->get()->role) {
+        case barock::xdg_role_t::eToplevel: {
+          (*xdg_surface->get()->as.toplevel)->get()->surface = nullptr;
+          break;
         }
-        delete surface;
-      });
+        default: {
+        }
+      }
+    });
 
     // Send the configure event
-    xdg_surface_send_configure(xdg_surface_resource,
+    xdg_surface_send_configure(xdg_surface->resource(),
                                wl_display_next_serial(shell->compositor.display()));
   }
 };

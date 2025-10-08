@@ -2,6 +2,7 @@
 #include "barock/input.hpp"
 #include "barock/resource.hpp"
 
+#include "barock/core/surface.hpp"
 #include "barock/core/wl_seat.hpp"
 
 #include "../log.hpp"
@@ -93,16 +94,43 @@ barock::wl_seat_t::bind(wl_client *client, void *ud, uint32_t version, uint32_t 
     return;
   }
 
-  auto client_seat     = new seat_t{};
-  client_seat->wl_seat = seat;
-  wl_resource_set_implementation(resource, &wl_seat_impl, client_seat, [](wl_resource *r) {
-    auto seat = static_cast<seat_t *>(wl_resource_get_user_data(r));
-    seat->wl_seat->seats.erase(wl_resource_get_client(r));
-    delete seat;
+  auto wl_seat = make_resource<seat_t>(client, wl_seat_interface, wl_seat_impl, version, id);
+  wl_seat->get()->interface = seat;
+  wl_seat->on_destroy.connect([orig = wl_seat->resource(), seat](auto resource) {
+    // The wl_seat object has a more complicated destructor. Some
+    // clients (>_> weston-terminal), seem to be more lenient in what
+    // order they destroy their resources, sometimes first the
+    // dependant resource are destroyed (pointer, keyboard, etc.),
+    // while at other times, they first destroy the wl_seat object.
+    //
+    // Now, this handler automatically destroys the resource of any
+    // stored pointer, keyboard, and touch devices, which should
+    // prevent any leak from occuring.
+
+    auto tmp = from_wl_resource<seat_t>(resource);
+    if (!tmp) {
+      WARN("Seat is invalid, can't clean up pointer, etc.");
+      return;
+    }
+
+    auto pointer = tmp->get()->pointer.lock();
+    if (pointer)
+      wl_resource_destroy(pointer->resource());
+
+    auto keyboard = tmp->get()->keyboard.lock();
+    if (keyboard)
+      wl_resource_destroy(keyboard->resource());
+
+    // The cleanup of wl_seat is more involved, as this resource
+    // creates new resources, which have to be
+    if (orig == resource) {
+      WARN("Removing client from seats map");
+      seat->seats.erase(wl_resource_get_client(orig));
+    }
   });
 
   // Add a record to our map to identify clients -> seats
-  seat->seats[client] = client_seat;
+  seat->seats.insert(std::pair(client, wl_seat));
 
   uint32_t capabilities = 0;
   for (auto &dev : seat->compositor.input->devices) {
@@ -119,31 +147,32 @@ barock::wl_seat_t::bind(wl_client *client, void *ud, uint32_t version, uint32_t 
   wl_seat_send_capabilities(resource, capabilities);
 }
 
-void
-wl_seat_get_pointer(wl_client *client, wl_resource *seat_res, uint32_t id) {
-  // This request only takes effect if the seat has the pointer
-  // capability, or has had the pointer capability in the past. It is
-  // a protocol violation to issue this request on a seat that has
-  // never had the pointer capability. The missing_capability error
-  // will be sent in this case.
-  //
-  // TODO: Implement that, currently we do not care.
-  auto seat = (barock::seat_t *)wl_resource_get_user_data(seat_res);
-
-  auto wl_pointer =
-    wl_resource_create(client, &wl_pointer_interface, wl_resource_get_version(seat_res), id);
-  if (!wl_pointer) {
-    wl_client_post_no_memory(client);
-    return;
-  }
-  seat->pointer = wl_pointer;
-  wl_resource_set_implementation(wl_pointer, &wl_pointer_impl, seat, [](wl_resource *r) {
-    static_cast<barock::seat_t *>(wl_resource_get_user_data(r))->pointer = nullptr;
-  });
+shared_t<resource_t<seat_t>>
+wl_seat_t::find(wl_client *client) {
+  if (!seats.contains(client))
+    return nullptr;
+  return seats.at(client);
 }
 
 void
-wl_seat_get_keyboard(wl_client *client, wl_resource *seat_res, uint32_t id) {
+wl_seat_get_pointer(wl_client *client, wl_resource *wl_seat, uint32_t id) {
+  // This request only takes effect if the seat has the pointer
+  // capability, or has had the pointer capability in the past. It is
+  // a protocol violation to issue this request on a seat that has
+  // never had the pointer capability. The missing_capability error
+  // will be sent in this case.
+  //
+  // TODO: Implement that, currently we do not care.
+  auto seat = from_wl_resource<seat_t>(wl_seat);
+
+  auto wl_pointer = make_resource<wl_pointer_t>(client, wl_pointer_interface, wl_pointer_impl,
+                                                wl_resource_get_version(wl_seat), id, seat);
+  wl_pointer->on_destruct.connect([](auto &resource) { resource->seat->get()->pointer = nullptr; });
+  seat->get()->pointer = wl_pointer;
+}
+
+void
+wl_seat_get_keyboard(wl_client *client, wl_resource *wl_seat, uint32_t id) {
 
   // This request only takes effect if the seat has the pointer
   // capability, or has had the pointer capability in the past. It is
@@ -152,25 +181,19 @@ wl_seat_get_keyboard(wl_client *client, wl_resource *seat_res, uint32_t id) {
   // will be sent in this case.
   //
   // TODO: Implement that, currently we do not care.
-  INFO("wl_seat#get_keyboard");
-  auto seat = (barock::seat_t *)wl_resource_get_user_data(seat_res);
+  auto seat = from_wl_resource<seat_t>(wl_seat);
 
-  auto wl_keyboard =
-    wl_resource_create(client, &wl_keyboard_interface, wl_resource_get_version(seat_res), id);
-  if (!wl_keyboard) {
-    wl_client_post_no_memory(client);
-    return;
-  }
-  seat->keyboard = wl_keyboard;
-  wl_resource_set_implementation(wl_keyboard, &wl_keyboard_impl, seat, [](wl_resource *r) {
-    static_cast<barock::seat_t *>(wl_resource_get_user_data(r))->keyboard = nullptr;
-  });
+  auto wl_keyboard = make_resource<wl_keyboard_t>(client, wl_keyboard_interface, wl_keyboard_impl,
+                                                  wl_resource_get_version(wl_seat), id, seat);
+  wl_keyboard->on_destruct.connect(
+    [](auto &resource) { resource->seat->get()->pointer = nullptr; });
+  seat->get()->keyboard = wl_keyboard;
 
-  auto &keymap_string = seat->wl_seat->compositor.keyboard.xkb.keymap_string;
+  auto &keymap_string = seat->get()->interface->compositor.keyboard.xkb.keymap_string;
   int   keymap_fd     = create_xkb_keymap_fd(keymap_string, strlen(keymap_string));
-  wl_keyboard_send_keymap(wl_keyboard, WL_KEYBOARD_KEYMAP_FORMAT_XKB_V1, keymap_fd,
+  wl_keyboard_send_keymap(wl_keyboard->resource(), WL_KEYBOARD_KEYMAP_FORMAT_XKB_V1, keymap_fd,
                           strlen(keymap_string));
-  wl_keyboard_send_repeat_info(wl_keyboard, 70, 150);
+  wl_keyboard_send_repeat_info(wl_keyboard->resource(), 70, 150);
 }
 
 void
@@ -180,29 +203,28 @@ wl_seat_release(wl_client *client, wl_resource *res) {
 
 void
 wl_pointer_set_cursor(struct wl_client   *client,
-                      struct wl_resource *seat_res,
+                      struct wl_resource *wl_pointer,
                       uint32_t            serial,
                       struct wl_resource *wl_surface,
                       int32_t             hotspot_x,
                       int32_t             hotspot_y) {
-  auto seat = static_cast<barock::seat_t *>(wl_resource_get_user_data(seat_res));
+  auto pointer = from_wl_resource<wl_pointer_t>(wl_pointer);
+
   if (wl_surface == nullptr) {
-    seat->wl_seat->compositor.cursor.surface = nullptr;
+    pointer->get()->seat->get()->interface->compositor.cursor.surface = nullptr;
   } else {
-    shared_t<resource_t<surface_t>> surface =
-      *(shared_t<resource_t<surface_t>> *)wl_resource_get_user_data(wl_surface);
-    seat->wl_seat->compositor.cursor.surface = surface->get();
-    seat->wl_seat->compositor.cursor.hotspot = { hotspot_x, hotspot_y };
+    shared_t<resource_t<surface_t>> surface = from_wl_resource<surface_t>(wl_surface);
+    pointer->get()->seat->get()->interface->compositor.cursor.surface = surface->get();
+    pointer->get()->seat->get()->interface->compositor.cursor.hotspot = { hotspot_x, hotspot_y };
   }
 }
 
 void
 wl_pointer_release(wl_client *, wl_resource *res) {
-  static_cast<barock::seat_t *>(wl_resource_get_user_data(res))->pointer = nullptr;
+  wl_resource_destroy(res);
 }
 
 void
 wl_keyboard_release(wl_client *, wl_resource *res) {
-  WARN("keyboard release");
-  static_cast<barock::seat_t *>(wl_resource_get_user_data(res))->keyboard = nullptr;
+  wl_resource_destroy(res);
 }

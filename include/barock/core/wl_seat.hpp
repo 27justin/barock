@@ -14,22 +14,35 @@ namespace barock {
   struct compositor_t;
   struct wl_seat_t;
   struct surface_t;
+  struct seat_t;
+
+  struct wl_pointer_t {
+    shared_t<resource_t<seat_t>> seat;
+  };
+
+  struct wl_keyboard_t {
+    shared_t<resource_t<seat_t>> seat;
+  };
 
   struct seat_t {
-    wl_seat_t   *wl_seat;
-    wl_resource *pointer = nullptr, *keyboard = nullptr, *touch = nullptr;
-    surface_t   *pointer_focus = nullptr;
+    wl_seat_t *interface;
+
+    weak_t<resource_t<wl_pointer_t>>  pointer;
+    weak_t<resource_t<wl_keyboard_t>> keyboard;
   };
 
   struct wl_seat_t {
     public:
-    static constexpr int            VERSION = 9;
-    std::map<wl_client *, seat_t *> seats;
+    static constexpr int                                VERSION = 9;
+    std::map<wl_client *, shared_t<resource_t<seat_t>>> seats;
 
     compositor_t &compositor;
     wl_global    *wl_seat_global;
     wl_seat_t(compositor_t &);
     ~wl_seat_t();
+
+    shared_t<resource_t<seat_t>>
+    find(wl_client *);
 
     static void
     bind(wl_client *, void *, uint32_t version, uint32_t id);

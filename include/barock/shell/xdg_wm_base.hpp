@@ -25,11 +25,12 @@ namespace barock {
 
     struct _unary {
       union {
-        xdg_toplevel_t *toplevel;
-        void           *raw;
+        shared_t<resource_t<xdg_toplevel_t>> *toplevel;
+        void                                 *raw;
       };
     } as;
 
+    ~xdg_surface_t();
     xdg_surface_t(xdg_shell_t &parent, shared_t<resource_t<surface_t>> base);
   };
 

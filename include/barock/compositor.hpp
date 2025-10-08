@@ -30,9 +30,9 @@ namespace barock {
     private:
     wl_display *display_;
 
-    std::mutex                                           frame_updates_lock;
-    std::queue<std::pair<barock::surface_t *, uint32_t>> frame_updates;
-    wl_event_source                                     *frame_event_source;
+    std::mutex                                                       frame_updates_lock;
+    std::queue<std::pair<shared_t<resource_t<surface_t>>, uint32_t>> frame_updates;
+    wl_event_source                                                 *frame_event_source;
 
     public:
     minidrm::drm::handle_t drm_handle;
@@ -108,7 +108,7 @@ namespace barock {
     display();
 
     void
-    schedule_frame_done(surface_t *surface, uint32_t timestamp);
+    schedule_frame_done(const shared_t<resource_t<surface_t>> &surface, uint32_t timestamp);
 
     static int
     frame_done_flush_callback(void *);

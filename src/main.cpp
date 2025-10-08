@@ -199,78 +199,69 @@ upload_texture(barock::shm_buffer_t &buffer) {
 
 pid_t
 run_command(std::string_view cmd) {
-  pid_t pid;
-  // /bin/sh -c "cmd"
+  pid_t             pid;
+  posix_spawnattr_t attr;
+
+  // Initialize spawn attributes
+  if (posix_spawnattr_init(&attr) != 0) {
+    perror("posix_spawnattr_init");
+    return -1;
+  }
+
+  // Set the POSIX_SPAWN_SETSID flag to detach from the current session
+  short flags = POSIX_SPAWN_SETSID;
+  if (posix_spawnattr_setflags(&attr, flags) != 0) {
+    perror("posix_spawnattr_setflags");
+    posix_spawnattr_destroy(&attr);
+    return -1;
+  }
+
   const char *argv[] = { (char *)"sh", (char *)"-c", nullptr, nullptr };
   std::string cmdstr(cmd);
-  argv[2] = const_cast<char *>(cmdstr.c_str());
-  if (posix_spawnp(&pid, "sh", NULL, NULL, const_cast<char *const *>(argv), environ) != 0) {
+  argv[2]    = const_cast<char *>(cmdstr.c_str());
+  int result = posix_spawnp(&pid, "sh", NULL, NULL, const_cast<char *const *>(argv), environ);
+
+  posix_spawnattr_destroy(&attr);
+
+  if (result != 0) {
     perror("posix_spawnp");
     return -1;
   }
+
   return pid;
 }
 
 void
-draw_surface(barock::compositor_t        &compositor,
-             GLuint                       program,
-             barock::surface_t           &surface,
-             minidrm::framebuffer::egl_t &screen,
-             int32_t                      parent_x,
-             int32_t                      parent_y) {
+draw_surface(barock::compositor_t                                    &compositor,
+             GLuint                                                   program,
+             barock::shared_t<barock::resource_t<barock::surface_t>> &surface,
+             minidrm::framebuffer::egl_t                             &screen,
+             int32_t                                                  parent_x,
+             int32_t                                                  parent_y) {
   // We only render surfaces that have a role attached.
   int32_t x = parent_x, y = parent_y, width = 0, height = 0;
   GLuint  texture = 0;
 
   // Check the role, we have to render different things accordingly
-  if (surface.role) {
-    if (surface.role->type_id() == barock::xdg_surface_t::id()) {
-      // XDG Surfaces, either a xdg_toplevel (window) or a xdg_popup
-      auto &xdg_surface = *reinterpret_cast<barock::xdg_surface_t *>(surface.role);
-      switch (xdg_surface.role) {
-        case barock::xdg_role_t::eToplevel: {
-          auto &role = xdg_surface.as.toplevel->data;
-          x += role.x;
-          y += role.y;
-          width  = role.width;
-          height = role.height;
-          break;
-        }
-        case barock::xdg_role_t::ePopup: {
-          ERROR("[draw_surface] xdg_popup rendering is not yet implemented!");
-          return;
-        }
-        case barock::xdg_role_t::eNone: {
-          WARN("[draw_surface] got passed a xdg_surface with no role attached!");
-          return;
-        }
-      }
-    } else {
-      ERROR("[draw_surface] unknown surface role");
-      return;
-    }
-  } else if (surface.state.buffer) {
-    // No role, but has buffer (likely a wl_subsurface)
-    auto *buffer = (barock::shm_buffer_t *)wl_resource_get_user_data(surface.state.buffer);
-    width        = buffer->width;
-    height       = buffer->height;
-  } else {
-    // WARN("[draw_surface] surface has no role and no buffer");
-    goto render_subsurfaces;
-    return;
-  }
+  int32_t local_x{}, local_y;
+  surface->get()->extent(local_x, local_y, width, height);
+  x += local_x;
+  y += local_y;
 
   // Window is improperly configured, likely that the client hasn't
   // attached a buffer yet.
-  if (width <= 0 || height <= 0)
-    return;
+  if (width <= 0 || height <= 0) {
+    WARN("surface has no width, or height, rendering just the subsurfaces");
+    goto render_subsurfaces;
+  }
 
+  INFO("[draw_surface] drawing surface {}x{} @ {}, {}", width, height, x, y);
   glViewport(x, screen.mode.height() - (y + height), width, height);
   GL_CHECK;
 
-  if (surface.state.buffer) {
+  if (surface->get()->state.buffer) {
     barock::shm_buffer_t *buffer =
-      (barock::shm_buffer_t *)wl_resource_get_user_data(surface.state.buffer);
+      (barock::shm_buffer_t *)wl_resource_get_user_data(surface->get()->state.buffer);
 
     texture = upload_texture(*buffer);
     GL_CHECK;
@@ -278,14 +269,15 @@ draw_surface(barock::compositor_t        &compositor,
     draw_quad(program, texture);
     GL_CHECK;
 
-    compositor.schedule_frame_done(&surface, barock::current_time_msec());
+    compositor.schedule_frame_done(surface, barock::current_time_msec());
     glDeleteTextures(1, &texture);
     GL_CHECK;
   }
 
 render_subsurfaces:
-  for (auto &surf : surface.state.subsurfaces) {
-    draw_surface(compositor, program, *surf->surface->get(), screen, surf->x + x, surf->y + y);
+  for (auto &surf : surface->get()->state.subsurfaces) {
+    draw_surface(compositor, program, surf->get()->surface, screen, surf->get()->x + x,
+                 surf->get()->y + y);
   }
 }
 
@@ -333,7 +325,7 @@ main() {
 
     if (scancode == KEY_ENTER && key_state == LIBINPUT_KEY_STATE_RELEASED) {
       INFO("Starting terminal");
-      run_command("foot");
+      run_command("weston-terminal");
     }
   });
 
@@ -388,7 +380,7 @@ main() {
     }
 
   focus_new_surface:
-    INFO("Trying to focus new surface.");
+    // INFO("Trying to focus new surface.");
     for (auto &surf : compositor.wl_compositor->surfaces) {
       // Compute the position of the surface
       surf->get()->extent(x, y, w, h);
@@ -495,17 +487,20 @@ main() {
       glClear(GL_COLOR_BUFFER_BIT);
 
       // Iterate all surfaces...
+      std::lock_guard<std::mutex> lock(compositor.wl_compositor->surfaces_mutex);
       for (auto surface : compositor.wl_compositor->surfaces) {
+        if (!surface)
+          continue;
         if (!surface->get()->role)
           continue;
         if (surface->get()->role->type_id() != barock::xdg_surface_t::id())
           continue;
 
-        draw_surface(compositor, quad_program, *surface->get(), *screen, 0, 0);
+        draw_surface(compositor, quad_program, surface, *screen, 0, 0);
       }
 
       // Draw cursor
-      if (!compositor.cursor.surface) {
+      if (!compositor.cursor.surface || true) {
         glEnable(GL_SCISSOR_TEST);
         glScissor((int)compositor.cursor.x, (int)screen->mode.height() - (compositor.cursor.y + 16),
                   16, 16);
@@ -514,9 +509,9 @@ main() {
         glDisable(GL_SCISSOR_TEST);
         GL_CHECK;
       } else {
-        draw_surface(compositor, quad_program, *compositor.cursor.surface, *screen,
-                     compositor.cursor.x + compositor.cursor.hotspot.x,
-                     compositor.cursor.y + compositor.cursor.hotspot.y);
+        // draw_surface(compositor, quad_program, compositor.cursor.surface, *screen,
+        //              compositor.cursor.x + compositor.cursor.hotspot.x,
+        //              compositor.cursor.y + compositor.cursor.hotspot.y);
       }
 
       screen->present(front);

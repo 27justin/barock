@@ -1,5 +1,6 @@
 #pragma once
 
+#include "barock/core/signal.hpp"
 #include "wl/wayland-protocol.h"
 #include <atomic>
 #include <wayland-server-core.h>
@@ -68,6 +69,16 @@ namespace barock {
      * @param ptr Raw pointer to the object to manage.
      */
     shared_t(_Ty *ptr) { control = new control_t{ .strong = 1, .weak = 0, .data = ptr }; }
+
+    /**
+     * @brief Constructs an empty shared_t.
+     *
+     * This object will allocate no heap memory, and will be left in
+     * an uninitialized invalid state.
+     *
+     */
+    shared_t()
+      : control(nullptr) {}
 
     /**
      * @brief Copy constructor.
@@ -229,6 +240,10 @@ namespace barock {
     _Ty         *data_;
     wl_resource *resource_;
 
+    signal_t<resource_t<_Ty> &>
+      on_destruct; ///< Signal emitted when the entire resource_t<> is removed from memory
+    signal_t<wl_resource *> on_destroy; ///< Signal emitted, when the wl_resource gets destroyed
+
     public:
     /**
      * @brief Create a new resource from for objects with default constructors.
@@ -236,6 +251,20 @@ namespace barock {
      */
     resource_t()
       : data_(new _Ty{})
+      , resource_(nullptr) {}
+
+    ~resource_t() {
+      on_destruct.emit(*this);
+      delete data_;
+    }
+
+    /**
+     * @brief Create a new resource from for objects with arbitrary arguments.
+     * @note You likely want to use `make_resource<_Ty>`
+     */
+    template<typename... Args>
+    resource_t(Args &&...args)
+      : data_(new _Ty(std::forward<Args>(args)...))
       , resource_(nullptr) {}
 
     resource_t(const resource_t<_Ty> &other)
@@ -410,9 +439,36 @@ namespace barock {
     }
   };
 
-  template<typename _Ty, typename... Args>
-  resource_t<_Ty>
-  make_resource(wl_client *, const wl_interface &, uint32_t, uint32_t, Args &&...args);
+  template<typename _Ty>
+  shared_t<resource_t<_Ty>>
+  from_wl_resource(wl_resource *resource) {
+    if (resource == nullptr) {
+      return nullptr;
+    }
+    return *reinterpret_cast<shared_t<resource_t<_Ty>> *>(wl_resource_get_user_data(resource));
+  }
+
+  template<typename _Ty, typename _Interface, typename... Args>
+  shared_t<resource_t<_Ty>>
+  make_resource(wl_client          *client,
+                const wl_interface &interface,
+                const _Interface   &implementation,
+                uint32_t            version,
+                uint32_t            id,
+                Args &&...args) {
+    auto *wl_resource = wl_resource_create(client, &interface, version, id);
+
+    shared_t<resource_t<_Ty>> *resource =
+      new shared_t<resource_t<_Ty>>(new resource_t<_Ty>(std::forward<Args>(args)...));
+    (*resource)->resource_ = wl_resource;
+
+    wl_resource_set_implementation(
+      wl_resource, &implementation, resource, [](struct wl_resource *res) {
+        delete static_cast<shared_t<resource_t<_Ty>> *>(wl_resource_get_user_data(res));
+      });
+
+    return *resource;
+  }
 
   template<typename _Ty, typename _Interface>
   shared_t<resource_t<_Ty>>
@@ -428,12 +484,12 @@ namespace barock {
 
     wl_resource_set_implementation(
       wl_resource, &implementation, resource, [](struct wl_resource *res) {
-        delete static_cast<shared_t<resource_t<_Ty>> *>(wl_resource_get_user_data(res));
-        wl_resource_destroy(res);
+        auto shared = static_cast<shared_t<resource_t<_Ty>> *>(wl_resource_get_user_data(res));
+        (*shared)->on_destroy.emit(res);
+        delete shared;
       });
 
     return *resource;
   }
-}
 
-// #include "resource.tpp"
+}

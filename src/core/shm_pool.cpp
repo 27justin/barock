@@ -41,12 +41,9 @@ create_buffer(struct wl_client   *client,
 
   pool->buffers.emplace_back(buf);
 
-  INFO("create buffer\n  offset: {}\n  width: {}\n  height: {}\n  stride: {}\n  format: {}", offset,
-       width, height, stride, format);
-
-  wl_resource_set_user_data(buffer, buf);
   wl_resource_set_implementation(buffer, &wl_buffer_impl, buf, [](wl_resource *resource) {
     barock::shm_buffer_t *buf = (barock::shm_buffer_t *)wl_resource_get_user_data(resource);
+    INFO("wl_buffer#cleanup pool: {}", (void *)buf->pool);
     // Remove the buffer from the shm_pool_t.
     // Since the shm_pool_t is reference counted (The mmapped memory will be released when all
     // buffers that have been created from this pool are gone.), we also check for buffers.
@@ -138,7 +135,11 @@ namespace barock {
   void
   shm_pool_t::destroy(wl_resource *res) {
     shm_pool_t *pool = reinterpret_cast<shm_pool_t *>(wl_resource_get_user_data(res));
-    delete pool;
+    if (pool->buffers.size() > 0) {
+      pool->marked_delete = true;
+    } else {
+      delete pool;
+    }
   }
 
   void *

@@ -3,6 +3,7 @@
 #include "barock/core/region.hpp"
 #include "barock/core/signal.hpp"
 #include "barock/core/wl_subcompositor.hpp"
+#include "barock/resource.hpp"
 #include "wl/wayland-protocol.h"
 
 #include <vector>
@@ -18,7 +19,7 @@ namespace barock {
     base_surface_role_t()          = default;
     virtual ~base_surface_role_t() = default;
     virtual uintptr_t
-    type_id() = 0;
+    type_id() const = 0;
   };
 
   template<typename CRTP>
@@ -34,7 +35,7 @@ namespace barock {
     }
 
     uintptr_t
-    type_id() override {
+    type_id() const override {
       return id();
     }
   };
@@ -51,7 +52,7 @@ namespace barock {
       int32_t x, y;
     } offset;
 
-    std::vector<subsurface_t *> subsurfaces;
+    std::vector<shared_t<resource_t<subsurface_t>>> subsurfaces;
   };
 
   struct surface_t {
@@ -62,7 +63,7 @@ namespace barock {
     surface_state_t state,
       staging; // Surface state is double buffered
 
-    base_surface_role_t *role;
+    shared_t<base_surface_role_t> role;
 
     signal_t<shm_buffer_t &> on_buffer_attached;
 
