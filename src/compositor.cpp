@@ -141,18 +141,27 @@ namespace barock {
   }
 
   void
-  compositor_t::_pointer::send_motion(shared_t<resource_t<surface_t>> &surf) {
+  compositor_t::_pointer::send_motion(shared_t<resource_t<surface_t>> &surface) {
     auto      &wl_seat = root->wl_seat;
-    wl_client *client  = surf->owner();
+    wl_client *client  = surface->owner();
 
     if (auto seat = wl_seat->find(client); seat) {
       if (auto pointer = seat->pointer.lock(); pointer) {
         int32_t x, y, w, h;
-        surf->extent(x, y, w, h);
+        surface->extent(x, y, w, h);
 
         double local_x{}, local_y{};
-        local_x = root->cursor.x - x;
-        local_y = root->cursor.y - y;
+        local_x = (root->cursor.x - x);
+        local_y = (root->cursor.y - y);
+
+        if (surface->role && surface->role->type_id() == barock::xdg_surface_t::id()) {
+          // Factor in logical offset (for client decorations, etc.)
+          auto xdg_surface = shared_cast<barock::xdg_surface_t>(surface->role);
+          if (xdg_surface) {
+            local_x += xdg_surface->x;
+            local_y += xdg_surface->y;
+          }
+        }
 
         wl_pointer_send_motion(pointer->resource(), current_time_msec(),
                                wl_fixed_from_double(local_x), wl_fixed_from_double(local_y));

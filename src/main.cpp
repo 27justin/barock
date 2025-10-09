@@ -248,6 +248,15 @@ draw_surface(barock::compositor_t                                    &compositor
   x += local_x;
   y += local_y;
 
+  if (surface->role && surface->role->type_id() == barock::xdg_surface_t::id()) {
+    // Factor in logical offset (for client decorations, etc.)
+    auto xdg_surface = shared_cast<barock::xdg_surface_t>(surface->role);
+    if (xdg_surface) {
+      x -= xdg_surface->x;
+      y -= xdg_surface->y;
+    }
+  }
+
   // Window is improperly configured, likely that the client hasn't
   // attached a buffer yet.
   if (width <= 0 || height <= 0) {
@@ -311,7 +320,11 @@ draw(barock::compositor_t                                      &compositor,
     }
 
     // Draw cursor
-    if (true) {
+    if (auto pointer = compositor.cursor.surface.lock(); pointer) {
+      draw_surface(compositor, quad_program, pointer, *screen,
+                   compositor.cursor.x + compositor.cursor.hotspot.x,
+                   compositor.cursor.y + compositor.cursor.hotspot.y);
+    } else {
       glEnable(GL_SCISSOR_TEST);
       glScissor((int)compositor.cursor.x, (int)screen->mode.height() - (compositor.cursor.y + 16),
                 16, 16);
@@ -319,10 +332,6 @@ draw(barock::compositor_t                                      &compositor,
       glClear(GL_COLOR_BUFFER_BIT);
       glDisable(GL_SCISSOR_TEST);
       GL_CHECK;
-    } else {
-      // draw_surface(compositor, quad_program, compositor.cursor.surface, *screen,
-      //              compositor.cursor.x + compositor.cursor.hotspot.x,
-      //              compositor.cursor.y + compositor.cursor.hotspot.y);
     }
 
     screen->present(front);
@@ -418,9 +427,10 @@ main() {
     if (auto surface = compositor.pointer.focus.lock(); surface) {
       // Surface is still alive
       surface->extent(x, y, w, h);
+      bool in_bounds = (cursor.x >= x && cursor.x < x + w && cursor.y >= y && cursor.y < y + h);
 
       // Check if we are still within the surface bounds.
-      if (!(cursor.x >= x && cursor.x < x + w && cursor.y >= y && cursor.y < y + h)) {
+      if (!in_bounds) {
         compositor.pointer.set_focus(nullptr);
         WARN("Pointer left previous focused surface, searching for new one.");
         goto focus_new_surface;

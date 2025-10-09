@@ -20,12 +20,20 @@ namespace barock {
     , data(prop_data) {
 
     // Attach on_buffer_attach listener to resize the window
-    on_buffer_attached =
-      base->surface.lock()->on_buffer_attached.connect([&](const shm_buffer_t &buf) {
+    on_buffer_attached = base->surface.lock()->on_buffer_attached.connect(
+      [&data = this->data, surface = this->xdg_surface,
+       &on_buffer_attached = this->on_buffer_attached](const shm_buffer_t &buf) mutable {
         // TODO: We should only do this once, right now it auto resizes
         // to always match the buffer contents.
         data.width  = buf.width;
         data.height = buf.height;
+
+        // Immediately disconnect, we only resize once to fit.
+        if (auto xdg_surface = surface.lock()) {
+          if (auto wl_surface = xdg_surface->surface.lock()) {
+            wl_surface->on_buffer_attached.disconnect(on_buffer_attached);
+          }
+        }
       });
   }
 
@@ -38,14 +46,12 @@ namespace barock {
 
 void
 xdg_toplevel_set_title(wl_client *client, wl_resource *xdg_toplevel, const char *title) {
-  INFO("xdg_toplevel_set_title \"{}\"", title);
   auto surface        = from_wl_resource<xdg_toplevel_t>(xdg_toplevel);
   surface->data.title = title;
 }
 
 void
 xdg_toplevel_set_app_id(wl_client *client, wl_resource *xdg_toplevel, const char *app_id) {
-  INFO("xdg_toplevel_set_app_id \"{}\"", app_id);
   auto surface         = from_wl_resource<xdg_toplevel_t>(xdg_toplevel);
   surface->data.app_id = app_id;
 }
@@ -152,10 +158,13 @@ xdg_toplevel_move(wl_client   *client,
       toplevel->data.y = subscriptions->win_y + static_cast<int>(dy);
     });
 
-  subscriptions->on_mouse_button =
-    compositor->input->on_mouse_button.connect([compositor, subscriptions](const auto &event) {
+  subscriptions->on_mouse_button = compositor->input->on_mouse_button.connect(
+    [compositor, subscriptions, wl_surface](const auto &event) {
       // Left mouse released
       if (event.button == BTN_LEFT && event.state == 0) {
+        // Refocus the surface
+        compositor->pointer.set_focus(wl_surface);
+
         compositor->input->on_mouse_move.disconnect(subscriptions->on_mouse_move);
         compositor->input->on_mouse_button.disconnect(subscriptions->on_mouse_button);
       }
@@ -249,7 +258,7 @@ xdg_toplevel_resize(wl_client   *client,
     });
 
   subscriptions->on_mouse_button = compositor->input->on_mouse_button.connect(
-    [compositor, subscriptions, toplevel](const auto &event) mutable {
+    [compositor, subscriptions, toplevel, wl_surface](const auto &event) mutable {
       if (event.button == BTN_LEFT && event.state == 0) {
         // Send final empty configure event.
         wl_array state;
@@ -257,6 +266,9 @@ xdg_toplevel_resize(wl_client   *client,
         xdg_toplevel_send_configure(toplevel->resource(), toplevel->data.width,
                                     toplevel->data.height, &state);
         wl_array_release(&state);
+
+        // Refocus the surface
+        compositor->pointer.set_focus(wl_surface);
 
         compositor->input->on_mouse_move.disconnect(subscriptions->on_mouse_move);
         compositor->input->on_mouse_button.disconnect(subscriptions->on_mouse_button);

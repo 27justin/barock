@@ -41,6 +41,7 @@ namespace barock {
     y      = 0;
     width  = 0;
     height = 0;
+
     if (role && role->type_id() == barock::xdg_surface_t::id()) {
       auto &xdg_surface = *reinterpret_cast<const barock::xdg_surface_t *>(&*role);
 
@@ -48,12 +49,11 @@ namespace barock {
         case barock::xdg_role_t::eToplevel: {
           auto role = xdg_surface.get_role<xdg_toplevel_t>();
 
-          // Compute bounds of window's drawable content
-          x      = role->data.x; // + xdg_surface.x;
-          y      = role->data.y; // + xdg_surface.y;
+          // Get bounds of window's drawable content
+          x      = role->data.x;
+          y      = role->data.y;
           width  = role->data.width;
           height = role->data.height;
-          // INFO("Using toplevel dimensions, w: {}, h: {}", width, height);
           return;
         }
         case barock::xdg_role_t::ePopup: {
