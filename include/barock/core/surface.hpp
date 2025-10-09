@@ -23,7 +23,7 @@ namespace barock {
   };
 
   template<typename CRTP>
-  struct surface_role_t : base_surface_role_t {
+  struct surface_role_t : public base_surface_role_t {
     public:
     surface_role_t()  = default;
     ~surface_role_t() = default;

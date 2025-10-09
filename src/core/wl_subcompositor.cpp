@@ -26,9 +26,9 @@ struct wl_subcompositor_interface wl_subcompositor_impl{
 
 void
 wl_subsurface_set_position(wl_client *client, wl_resource *wl_subsurface, int32_t x, int32_t y) {
-  auto subsurface      = from_wl_resource<subsurface_t>(wl_subsurface);
-  subsurface->get()->x = x;
-  subsurface->get()->y = y;
+  auto subsurface = from_wl_resource<subsurface_t>(wl_subsurface);
+  subsurface->x   = x;
+  subsurface->y   = y;
 }
 
 void
@@ -95,11 +95,12 @@ wl_subcompositor_get_subsurface(wl_client   *client,
   shared_t<resource_t<surface_t>> parent_surface =
     *(decltype(parent_surface) *)wl_resource_get_user_data(parent);
 
-  if (child_surface->get()->role != nullptr) {
-    wl_resource_post_error(wl_subcompositor, WL_SUBCOMPOSITOR_ERROR_BAD_SURFACE,
-                           "Surface role has already been assigned");
-    return;
-  }
+  // TODO: This broke
+  // if (child_surface->role != nullptr) {
+  //   wl_resource_post_error(wl_subcompositor, WL_SUBCOMPOSITOR_ERROR_BAD_SURFACE,
+  //                          "Surface role has already been assigned");
+  //   return;
+  // }
 
   auto wl_subsurface = make_resource<subsurface_t>(
     client, wl_subsurface_interface, wl_subsurface_impl, wl_resource_get_version(wl_subcompositor),
@@ -110,7 +111,7 @@ wl_subcompositor_get_subsurface(wl_client   *client,
   // sub-surface becomes visible on the next time the state of the
   // parent surface is applied.
 
-  parent_surface->get()->staging.subsurfaces.emplace_back(wl_subsurface);
+  parent_surface->staging.subsurfaces.emplace_back(wl_subsurface);
 
   // Remove subsurface from wl_compositor
   auto it = std::find(compositor->surfaces.begin(), compositor->surfaces.end(), child_surface);
@@ -132,8 +133,7 @@ void
 wl_subsurface_destroy(wl_client *, wl_resource *wl_subsurface) {
   auto subsurface = from_wl_resource<subsurface_t>(wl_subsurface);
 
-  auto child  = subsurface->get();
-  auto parent = child->parent->get();
+  auto parent = subsurface->parent.lock();
 
   // TODO: We "double"-buffer the subsurfaces, therefore we also have
   // to remove the subsurface from both buffers, this sucks.

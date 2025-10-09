@@ -54,7 +54,7 @@ namespace barock {
       struct {
         int32_t x, y;
       } hotspot;
-      surface_t *surface;
+      weak_t<resource_t<surface_t>> surface;
     } cursor;
 
     struct _pointer {
@@ -92,6 +92,9 @@ namespace barock {
       send_enter(shared_t<resource_t<surface_t>> &);
 
       void
+      send_leave(shared_t<resource_t<surface_t>> &);
+
+      void
       send_key(shared_t<resource_t<surface_t>> &, uint32_t, uint32_t);
 
       void
@@ -99,6 +102,7 @@ namespace barock {
 
       /// Set the focus to another surface, use nullptr to clear the focus
       void set_focus(shared_t<resource_t<surface_t>>);
+
     } keyboard;
 
     compositor_t(minidrm::drm::handle_t drm_handle, const std::string &seat);

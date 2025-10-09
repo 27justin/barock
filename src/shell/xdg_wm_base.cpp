@@ -44,36 +44,25 @@ namespace barock {
 
   void
   xdg_shell_t::handle_xdg_base_get_surface(wl_client   *client,
-                                           wl_resource *wm_base_resource,
+                                           wl_resource *xdg_wm_base,
                                            uint32_t     id,
-                                           wl_resource *surface_result) {
-    xdg_shell_t *shell =
-      reinterpret_cast<xdg_shell_t *>(wl_resource_get_user_data(wm_base_resource));
+                                           wl_resource *wl_surface) {
+    xdg_shell_t *shell = reinterpret_cast<xdg_shell_t *>(wl_resource_get_user_data(xdg_wm_base));
 
     // Check whether client created a surface on our wl_compositor yet.
-    if (!surface_result) {
+    if (!wl_surface) {
       wl_client_post_no_memory(client);
       return;
     }
 
-    shared_t<resource_t<surface_t>> compositor_surface =
-      from_wl_resource<surface_t>(surface_result);
+    shared_t<resource_t<surface_t>> surface = from_wl_resource<surface_t>(wl_surface);
 
-    auto xdg_surface = make_resource<xdg_surface_t>(client, xdg_surface_interface, xdg_surface_impl,
-                                                    wl_resource_get_version(wm_base_resource), id,
-                                                    *shell, compositor_surface);
-    compositor_surface->get()->role = xdg_surface->get();
-
-    xdg_surface->on_destroy.connect([xdg_surface](auto) {
-      switch (xdg_surface->get()->role) {
-        case barock::xdg_role_t::eToplevel: {
-          (*xdg_surface->get()->as.toplevel)->get()->surface = nullptr;
-          break;
-        }
-        default: {
-        }
-      }
-    });
+    auto xdg_surface =
+      make_resource<xdg_surface_t>(client, xdg_surface_interface, xdg_surface_impl,
+                                   wl_resource_get_version(xdg_wm_base), id, *shell, surface);
+    INFO("xdg_surface: {}", (void *)xdg_surface.get());
+    surface->role = xdg_surface;
+    INFO("role id: {}", surface->role->type_id());
 
     // Send the configure event
     xdg_surface_send_configure(xdg_surface->resource(),

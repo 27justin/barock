@@ -94,8 +94,8 @@ barock::wl_seat_t::bind(wl_client *client, void *ud, uint32_t version, uint32_t 
     return;
   }
 
-  auto wl_seat = make_resource<seat_t>(client, wl_seat_interface, wl_seat_impl, version, id);
-  wl_seat->get()->interface = seat;
+  auto wl_seat       = make_resource<seat_t>(client, wl_seat_interface, wl_seat_impl, version, id);
+  wl_seat->interface = seat;
   wl_seat->on_destroy.connect([orig = wl_seat->resource(), seat](auto resource) {
     // The wl_seat object has a more complicated destructor. Some
     // clients (>_> weston-terminal), seem to be more lenient in what
@@ -113,11 +113,11 @@ barock::wl_seat_t::bind(wl_client *client, void *ud, uint32_t version, uint32_t 
       return;
     }
 
-    auto pointer = tmp->get()->pointer.lock();
+    auto pointer = tmp->pointer.lock();
     if (pointer)
       wl_resource_destroy(pointer->resource());
 
-    auto keyboard = tmp->get()->keyboard.lock();
+    auto keyboard = tmp->keyboard.lock();
     if (keyboard)
       wl_resource_destroy(keyboard->resource());
 
@@ -167,8 +167,8 @@ wl_seat_get_pointer(wl_client *client, wl_resource *wl_seat, uint32_t id) {
 
   auto wl_pointer = make_resource<wl_pointer_t>(client, wl_pointer_interface, wl_pointer_impl,
                                                 wl_resource_get_version(wl_seat), id, seat);
-  wl_pointer->on_destruct.connect([](auto &resource) { resource->seat->get()->pointer = nullptr; });
-  seat->get()->pointer = wl_pointer;
+  wl_pointer->on_destruct.connect([](auto &resource) { resource.seat->pointer = nullptr; });
+  seat->pointer = wl_pointer;
 }
 
 void
@@ -185,11 +185,10 @@ wl_seat_get_keyboard(wl_client *client, wl_resource *wl_seat, uint32_t id) {
 
   auto wl_keyboard = make_resource<wl_keyboard_t>(client, wl_keyboard_interface, wl_keyboard_impl,
                                                   wl_resource_get_version(wl_seat), id, seat);
-  wl_keyboard->on_destruct.connect(
-    [](auto &resource) { resource->seat->get()->pointer = nullptr; });
-  seat->get()->keyboard = wl_keyboard;
+  wl_keyboard->on_destruct.connect([](auto &resource) { resource.seat->pointer = nullptr; });
+  seat->keyboard = wl_keyboard;
 
-  auto &keymap_string = seat->get()->interface->compositor.keyboard.xkb.keymap_string;
+  auto &keymap_string = seat->interface->compositor.keyboard.xkb.keymap_string;
   int   keymap_fd     = create_xkb_keymap_fd(keymap_string, strlen(keymap_string));
   wl_keyboard_send_keymap(wl_keyboard->resource(), WL_KEYBOARD_KEYMAP_FORMAT_XKB_V1, keymap_fd,
                           strlen(keymap_string));
@@ -211,11 +210,11 @@ wl_pointer_set_cursor(struct wl_client   *client,
   auto pointer = from_wl_resource<wl_pointer_t>(wl_pointer);
 
   if (wl_surface == nullptr) {
-    pointer->get()->seat->get()->interface->compositor.cursor.surface = nullptr;
+    pointer->seat->interface->compositor.cursor.surface = nullptr;
   } else {
-    shared_t<resource_t<surface_t>> surface = from_wl_resource<surface_t>(wl_surface);
-    pointer->get()->seat->get()->interface->compositor.cursor.surface = surface->get();
-    pointer->get()->seat->get()->interface->compositor.cursor.hotspot = { hotspot_x, hotspot_y };
+    shared_t<resource_t<surface_t>> surface             = from_wl_resource<surface_t>(wl_surface);
+    pointer->seat->interface->compositor.cursor.surface = surface;
+    pointer->seat->interface->compositor.cursor.hotspot = { hotspot_x, hotspot_y };
   }
 }
 

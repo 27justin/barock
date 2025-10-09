@@ -4,6 +4,7 @@
 #include "barock/core/surface.hpp"
 #include "barock/resource.hpp"
 
+#include <any>
 #include <cstdint>
 #include <map>
 #include <wayland-server-core.h>
@@ -16,22 +17,31 @@ namespace barock {
 
   enum class xdg_role_t { eToplevel, ePopup, eNone };
 
+  struct xdg_base_role_t {};
+
   struct xdg_surface_t : public surface_role_t<xdg_surface_t> {
-    xdg_shell_t                    &shell;
-    shared_t<resource_t<surface_t>> surface;
-    xdg_role_t                      role;
+    xdg_shell_t                  &shell;
+    weak_t<resource_t<surface_t>> surface;
+
+    xdg_role_t                role;
+    shared_t<xdg_base_role_t> role_impl;
 
     int32_t x, y, width, height;
 
-    struct _unary {
-      union {
-        shared_t<resource_t<xdg_toplevel_t>> *toplevel;
-        void                                 *raw;
-      };
-    } as;
-
     ~xdg_surface_t();
     xdg_surface_t(xdg_shell_t &parent, shared_t<resource_t<surface_t>> base);
+
+    template<typename Cast>
+    shared_t<Cast>
+    get_role() {
+      return shared_cast<Cast>(role_impl);
+    }
+
+    template<typename Cast>
+    shared_t<Cast>
+    get_role() const {
+      return shared_cast<Cast>(*const_cast<decltype(role_impl) *>(&role_impl));
+    }
   };
 
   class xdg_shell_t {

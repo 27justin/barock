@@ -3,6 +3,7 @@
 #include "barock/core/signal.hpp"
 #include "wl/wayland-protocol.h"
 #include <atomic>
+#include <cassert>
 #include <wayland-server-core.h>
 
 /**
@@ -46,6 +47,7 @@ namespace barock {
     };
 
     control_t *control;                  ///< Pointer to the control block
+    _Ty       *alias{ nullptr };
 
     /**
      * @brief Private constructor from a control block pointer.
@@ -56,8 +58,10 @@ namespace barock {
      */
     explicit shared_t(control_t *ctrl)
       : control(ctrl) {
-      if (control)
+      if (control) {
         control->strong.fetch_add(1);
+        alias = control->data;
+      }
     }
 
     public:
@@ -68,7 +72,10 @@ namespace barock {
      *
      * @param ptr Raw pointer to the object to manage.
      */
-    shared_t(_Ty *ptr) { control = new control_t{ .strong = 1, .weak = 0, .data = ptr }; }
+    shared_t(_Ty *ptr)
+      : alias(ptr) {
+      control = new control_t{ .strong = 1, .weak = 0, .data = ptr };
+    }
 
     /**
      * @brief Constructs an empty shared_t.
@@ -88,21 +95,41 @@ namespace barock {
      * @param other Another shared_t instance to copy from.
      */
     shared_t(const shared_t<_Ty> &other)
-      : control(other.control) {
+      : control(other.control)
+      , alias(other.alias) {
       if (control)
         control->strong.fetch_add(1);
     }
 
     /**
-     * @brief Move constructor.
+     * @brief Copy constructor from derived classes.
      *
-     * Transfers ownership from another shared_t instance.
+     * Decrements the current strong reference count and cleans up if needed.
+     * Then copies the control block from another shared_t.
      *
-     * @param other Another shared_t instance to move from.
+     * @param other The shared_t to copy from.
+     * @return Reference to this shared_t.
      */
-    shared_t(shared_t &&other) noexcept
-      : control(other.control) {
-      other.control = nullptr;
+    template<typename _Other>
+    shared_t(const shared_t<_Other> &other)
+      requires std::is_base_of_v<_Other, _Ty>
+      : control(reinterpret_cast<control_t *>(other.control)) {
+      if (control) {
+        control->strong.fetch_add(1, std::memory_order_relaxed);
+        alias = control->data;
+      }
+    }
+
+    // Aliasing constructor
+    template<typename _Other>
+    shared_t(const shared_t<_Other> &other, _Ty *alias_ptr)
+      requires std::is_base_of_v<_Ty, _Other> || std::is_base_of_v<_Other, _Ty>
+    {
+      control = reinterpret_cast<control_t *>(other.control); // safe: we keep original control
+      alias   = alias_ptr;
+
+      if (control)
+        control->strong.fetch_add(1, std::memory_order_relaxed);
     }
 
     /**
@@ -130,22 +157,36 @@ namespace barock {
 
     _Ty *
     operator->() {
-      return control->data;
+      return alias;
     }
 
     const _Ty *
     operator->() const {
-      return control->data;
+      return alias;
     }
 
     _Ty &
     operator*() {
-      return *control->data;
+      return *alias;
     }
 
     const _Ty &
     operator*() const {
-      return *control->data;
+      return *alias;
+    }
+
+    _Ty *
+    get() {
+      if (!control)
+        return nullptr;
+      return alias;
+    }
+
+    const _Ty *
+    get() const {
+      if (!control)
+        return nullptr;
+      return alias;
     }
 
     /**
@@ -203,22 +244,80 @@ namespace barock {
       return *this;
     }
 
+    template<typename _To, typename _From>
+    inline void
+    assign_from_alias(shared_t<_To> &dst, const shared_t<_From> &src, _To *alias_ptr) {
+      dst.control = reinterpret_cast<typename shared_t<_To>::control_t *>(src.control);
+      dst.alias   = alias_ptr;
+      if (dst.control) {
+        dst.control->strong.fetch_add(1, std::memory_order_relaxed);
+      }
+    }
+
     /**
-     * @brief Move assignment operator.
+     * @brief Copy assignment operator.
      *
-     * Releases the current control block and transfers ownership from another shared_t.
+     * Decrements the current strong reference count and cleans up if needed.
+     * Then copies the control block from another shared_t.
      *
-     * @param other The shared_t to move from.
+     * @param other The shared_t to copy from.
+     * @tparam _Other the underlying data type of the assigning shared_t
      * @return Reference to this shared_t.
+     */
+    template<typename _Other>
+    shared_t<_Ty> &
+    operator=(const shared_t<_Other> &other)
+      requires std::is_base_of_v<_Ty, _Other> || std::is_base_of_v<_Other, _Ty>
+    {
+      if (reinterpret_cast<const void *>(this) == reinterpret_cast<const void *>(&other))
+        return *this;
+
+      if (control && control->strong.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+        delete control->data;
+        control->data = nullptr;
+
+        if (control->weak.load(std::memory_order_acquire) == 0) {
+          delete control;
+        }
+      }
+
+      assign_from_alias(*this, other, const_cast<_Ty *>(static_cast<const _Ty *>(other.get())));
+      return *this;
+    }
+
+    /**
+     * @brief Move constructor.
+     *
+     * Transfers ownership from another shared_t instance.
+     *
+     * @param other Another shared_t instance to move from.
      */
     shared_t &
     operator=(shared_t &&other) noexcept {
       if (this != &other) {
         this->~shared_t();
         control       = other.control;
+        alias         = other.alias;
         other.control = nullptr;
+        other.alias   = nullptr;
       }
       return *this;
+    }
+
+    uintmax_t
+    strong() {
+      if (!control)
+        return 0;
+      else
+        return control->strong.load();
+    }
+
+    uintmax_t
+    weak() {
+      if (!control)
+        return 0;
+      else
+        return control->weak.load();
     }
 
     /**
@@ -227,6 +326,12 @@ namespace barock {
      * Needed for constructing weak references.
      */
     friend class weak_t<_Ty>;
+    template<typename>
+    friend class shared_t;
+  };
+
+  struct resource_base_t {
+    virtual ~resource_base_t() = default;
   };
 
   /**
@@ -235,11 +340,13 @@ namespace barock {
    * @tparam _Ty Type of the managed object.
    */
   template<typename _Ty>
-  struct resource_t {
-    public:
-    _Ty         *data_;
+  struct resource_t
+    : public resource_base_t
+    , public _Ty {
+    private:
     wl_resource *resource_;
 
+    public:
     signal_t<resource_t<_Ty> &>
       on_destruct; ///< Signal emitted when the entire resource_t<> is removed from memory
     signal_t<wl_resource *> on_destroy; ///< Signal emitted, when the wl_resource gets destroyed
@@ -250,13 +357,8 @@ namespace barock {
      * @note You likely want to use `make_resource<_Ty>`
      */
     resource_t()
-      : data_(new _Ty{})
+      : _Ty()
       , resource_(nullptr) {}
-
-    ~resource_t() {
-      on_destruct.emit(*this);
-      delete data_;
-    }
 
     /**
      * @brief Create a new resource from for objects with arbitrary arguments.
@@ -264,22 +366,18 @@ namespace barock {
      */
     template<typename... Args>
     resource_t(Args &&...args)
-      : data_(new _Ty(std::forward<Args>(args)...))
+      : _Ty(std::forward<Args>(args)...)
       , resource_(nullptr) {}
 
     resource_t(const resource_t<_Ty> &other)
-      : data_(other.data_)
+      : _Ty(other)
       , resource_(other.resource_) {}
 
-    _Ty *
-    operator->() {
-      return this->data_;
-    }
+    resource_t(shared_t<_Ty> data)
+      : _Ty(*data)
+      , resource_(nullptr) {}
 
-    const _Ty *
-    operator->() const {
-      return this->data_;
-    }
+    ~resource_t() { on_destruct.emit(*this); }
 
     wl_resource *
     resource() {
@@ -291,14 +389,9 @@ namespace barock {
       return this->resource_;
     }
 
-    _Ty *
-    get() {
-      return this->data_;
-    }
-
-    const _Ty *
-    get() const {
-      return this->data_;
+    void
+    set_resource(wl_resource *res) {
+      resource_ = res;
     }
 
     wl_client *
@@ -310,6 +403,8 @@ namespace barock {
     operator==(const resource_t<_Ty> &other) const {
       return this->data_ == other.data_;
     }
+
+    operator wl_resource *() const { return resource_; }
   };
 
   /**
@@ -346,12 +441,11 @@ namespace barock {
       control->weak.fetch_add(1);
     }
 
-    /**
-     * @brief Deleted copy constructor.
-     *
-     * Disabled to prevent accidental copying of weak references.
-     */
-    weak_t(const weak_t &) = delete;
+    weak_t(const weak_t &other)
+      : control(other.control) {
+      if (control)
+        control->weak.fetch_add(1, std::memory_order_relaxed);
+    }
 
     /**
      * @brief Default constructor.
@@ -460,11 +554,13 @@ namespace barock {
 
     shared_t<resource_t<_Ty>> *resource =
       new shared_t<resource_t<_Ty>>(new resource_t<_Ty>(std::forward<Args>(args)...));
-    (*resource)->resource_ = wl_resource;
+    (*resource)->set_resource(wl_resource);
 
     wl_resource_set_implementation(
       wl_resource, &implementation, resource, [](struct wl_resource *res) {
-        delete static_cast<shared_t<resource_t<_Ty>> *>(wl_resource_get_user_data(res));
+        auto shared = static_cast<shared_t<resource_t<_Ty>> *>(wl_resource_get_user_data(res));
+        (*shared)->on_destroy.emit(res);
+        delete shared;
       });
 
     return *resource;
@@ -480,7 +576,7 @@ namespace barock {
     auto *wl_resource = wl_resource_create(client, &interface, version, id);
 
     shared_t<resource_t<_Ty>> *resource = new shared_t<resource_t<_Ty>>(new resource_t<_Ty>());
-    (*resource)->resource_              = wl_resource;
+    (*resource)->set_resource(wl_resource);
 
     wl_resource_set_implementation(
       wl_resource, &implementation, resource, [](struct wl_resource *res) {
@@ -490,6 +586,20 @@ namespace barock {
       });
 
     return *resource;
+  }
+
+  template<typename _Ty, typename _Source>
+  shared_t<_Ty>
+  make_derived_shared(const shared_t<_Source> &base, _Ty *derived) {
+    return shared_t<_Ty>(base, derived);
+  }
+
+  template<typename _Target, typename _Source>
+  shared_t<_Target>
+  shared_cast(shared_t<_Source> &ptr) {
+    auto derived = static_cast<_Target *>(ptr.get());
+    assert(derived && "Invalid shared_t cast");
+    return make_derived_shared<_Target>(ptr, derived);
   }
 
 }

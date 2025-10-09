@@ -67,21 +67,12 @@ namespace barock {
       }
     });
 
-    res->on_destruct.connect([](auto &) { WARN("wl_surface#dtor: completely deleted"); });
+    res->on_destruct.connect([](auto &) { ERROR("wl_surface is now fully OOM!"); });
 
-    (*res)->compositor = &compositor->compositor;
-    (*res)->role       = nullptr;
+    res->compositor = &compositor->compositor;
+    res->role       = nullptr;
 
     compositor->surfaces.push_back(res);
-
-    // // Set the protocol method handlers
-    // wl_resource_set_implementation(
-    //   surface_res, &wl_surface_impl,
-    //   surface, // pointer to our surface object
-    //   [](wl_resource *resource) {
-
-    //     delete surface;
-    //   });
   }
 
   void

@@ -244,24 +244,23 @@ draw_surface(barock::compositor_t                                    &compositor
 
   // Check the role, we have to render different things accordingly
   int32_t local_x{}, local_y;
-  surface->get()->extent(local_x, local_y, width, height);
+  surface->extent(local_x, local_y, width, height);
   x += local_x;
   y += local_y;
 
   // Window is improperly configured, likely that the client hasn't
   // attached a buffer yet.
   if (width <= 0 || height <= 0) {
-    WARN("surface has no width, or height, rendering just the subsurfaces");
+    // WARN("surface has no width, or height, rendering just the subsurfaces");
     goto render_subsurfaces;
   }
 
-  INFO("[draw_surface] drawing surface {}x{} @ {}, {}", width, height, x, y);
   glViewport(x, screen.mode.height() - (y + height), width, height);
   GL_CHECK;
 
-  if (surface->get()->state.buffer) {
+  if (surface->state.buffer) {
     barock::shm_buffer_t *buffer =
-      (barock::shm_buffer_t *)wl_resource_get_user_data(surface->get()->state.buffer);
+      (barock::shm_buffer_t *)wl_resource_get_user_data(surface->state.buffer);
 
     texture = upload_texture(*buffer);
     GL_CHECK;
@@ -275,9 +274,59 @@ draw_surface(barock::compositor_t                                    &compositor
   }
 
 render_subsurfaces:
-  for (auto &surf : surface->get()->state.subsurfaces) {
-    draw_surface(compositor, program, surf->get()->surface, screen, surf->get()->x + x,
-                 surf->get()->y + y);
+  for (auto &subsurface : surface->state.subsurfaces) {
+    auto surf = subsurface->surface.lock();
+    draw_surface(compositor, program, surf, screen, subsurface->x + x, subsurface->y + y);
+  }
+}
+
+void
+draw(barock::compositor_t                                      &compositor,
+     std::vector<std::unique_ptr<minidrm::framebuffer::egl_t>> &monitors,
+     GLint                                                      quad_program) {
+  GLuint texture = 0;
+  for (auto &screen : monitors) {
+    auto front = screen->acquire();
+
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+    glViewport(0, 0, screen->mode.width(), screen->mode.height());
+    glClearColor(0.08f, 0.08f, 0.10f, 1.f);
+    glClear(GL_COLOR_BUFFER_BIT);
+
+    // Iterate all surfaces...
+    std::lock_guard<std::mutex> lock(compositor.wl_compositor->surfaces_mutex);
+    for (auto surface : compositor.wl_compositor->surfaces) {
+      if (!surface)
+        continue;
+
+      if (!surface->role)
+        continue;
+
+      if (surface->role->type_id() != barock::xdg_surface_t::id())
+        continue;
+
+      draw_surface(compositor, quad_program, surface, *screen, 0, 0);
+    }
+
+    // Draw cursor
+    if (true) {
+      glEnable(GL_SCISSOR_TEST);
+      glScissor((int)compositor.cursor.x, (int)screen->mode.height() - (compositor.cursor.y + 16),
+                16, 16);
+      glClearColor(1.0, 0., 0., 1.);
+      glClear(GL_COLOR_BUFFER_BIT);
+      glDisable(GL_SCISSOR_TEST);
+      GL_CHECK;
+    } else {
+      // draw_surface(compositor, quad_program, compositor.cursor.surface, *screen,
+      //              compositor.cursor.x + compositor.cursor.hotspot.x,
+      //              compositor.cursor.y + compositor.cursor.hotspot.y);
+    }
+
+    screen->present(front);
+    GL_CHECK;
   }
 }
 
@@ -307,6 +356,7 @@ main() {
                          key_state == LIBINPUT_KEY_STATE_PRESSED ? XKB_KEY_DOWN : XKB_KEY_UP);
 
     if (auto surface = compositor.keyboard.focus.lock(); surface) {
+      INFO("Surface is still alive! {}", surface.strong());
       xkb_mod_mask_t depressed =
         xkb_state_serialize_mods(compositor.keyboard.xkb.state, XKB_STATE_MODS_DEPRESSED);
       xkb_mod_mask_t latched =
@@ -324,7 +374,7 @@ main() {
     }
 
     if (scancode == KEY_ENTER && key_state == LIBINPUT_KEY_STATE_RELEASED) {
-      INFO("Starting terminal");
+      WARN("Starting terminal");
       run_command("weston-terminal");
     }
   });
@@ -367,7 +417,7 @@ main() {
     int32_t x, y, w, h;
     if (auto surface = compositor.pointer.focus.lock(); surface) {
       // Surface is still alive
-      surface->get()->extent(x, y, w, h);
+      surface->extent(x, y, w, h);
 
       // Check if we are still within the surface bounds.
       if (!(cursor.x >= x && cursor.x < x + w && cursor.y >= y && cursor.y < y + h)) {
@@ -383,7 +433,7 @@ main() {
     // INFO("Trying to focus new surface.");
     for (auto &surf : compositor.wl_compositor->surfaces) {
       // Compute the position of the surface
-      surf->get()->extent(x, y, w, h);
+      surf->extent(x, y, w, h);
 
       if (cursor.x >= x && cursor.x < x + w && cursor.y >= y && cursor.y < y + h) {
         // Found a new surface, we'll focus it with keyboard
@@ -409,30 +459,6 @@ main() {
       return;
     }
   });
-
-  std::thread([&] {
-    wl_display    *display  = compositor.display();
-    wl_event_loop *loop     = wl_display_get_event_loop(display);
-    static int     throttle = 0;
-
-    while (1) {
-      // Dispatch events (fd handlers, client requests, etc.)
-      wl_event_loop_dispatch(loop, 0); // 0 = non-blocking, -1 = blocking
-
-      // Dispatch frame callbacks
-      compositor.frame_done_flush_callback(&compositor);
-
-      // Flush any pending Wayland client events
-      wl_display_flush_clients(display);
-    }
-    std::exit(1);
-  }).detach();
-
-  std::thread([&] {
-    for (;;) {
-      compositor.input->poll(-1);
-    }
-  }).detach();
 
   auto connectors = hdl.connectors();
 
@@ -473,51 +499,30 @@ main() {
     }
   }
 
-  auto   quad_program = init_quad_program();
-  GLuint texture      = 0;
-  for (;;) {
-    for (auto &screen : monitors) {
-      auto front = screen->acquire();
-
-      glEnable(GL_BLEND);
-      glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-
-      glViewport(0, 0, screen->mode.width(), screen->mode.height());
-      glClearColor(0.08f, 0.08f, 0.10f, 1.f);
-      glClear(GL_COLOR_BUFFER_BIT);
-
-      // Iterate all surfaces...
-      std::lock_guard<std::mutex> lock(compositor.wl_compositor->surfaces_mutex);
-      for (auto surface : compositor.wl_compositor->surfaces) {
-        if (!surface)
-          continue;
-        if (!surface->get()->role)
-          continue;
-        if (surface->get()->role->type_id() != barock::xdg_surface_t::id())
-          continue;
-
-        draw_surface(compositor, quad_program, surface, *screen, 0, 0);
-      }
-
-      // Draw cursor
-      if (!compositor.cursor.surface || true) {
-        glEnable(GL_SCISSOR_TEST);
-        glScissor((int)compositor.cursor.x, (int)screen->mode.height() - (compositor.cursor.y + 16),
-                  16, 16);
-        glClearColor(1.0, 0., 0., 1.);
-        glClear(GL_COLOR_BUFFER_BIT);
-        glDisable(GL_SCISSOR_TEST);
-        GL_CHECK;
-      } else {
-        // draw_surface(compositor, quad_program, compositor.cursor.surface, *screen,
-        //              compositor.cursor.x + compositor.cursor.hotspot.x,
-        //              compositor.cursor.y + compositor.cursor.hotspot.y);
-      }
-
-      screen->present(front);
-      GL_CHECK;
+  std::thread([&] {
+    for (;;) {
+      compositor.input->poll(-1);
     }
+  }).detach();
+
+  wl_display    *display  = compositor.display();
+  wl_event_loop *loop     = wl_display_get_event_loop(display);
+  static int     throttle = 0;
+
+  auto quad_program = init_quad_program();
+
+  while (1) {
+    // Dispatch events (fd handlers, client requests, etc.)
+    wl_event_loop_dispatch(loop, 0); // 0 = non-blocking, -1 = blocking
+
+    draw(compositor, monitors, quad_program);
+
+    // Dispatch frame callbacks
+    compositor.frame_done_flush_callback(&compositor);
+
+    // Flush any pending Wayland client events
+    wl_display_flush_clients(display);
   }
 
-  return 0;
+  return 1;
 }

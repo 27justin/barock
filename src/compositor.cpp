@@ -30,15 +30,15 @@ namespace barock {
     while (!compositor->frame_updates.empty()) {
       auto &[surface, timestamp] = compositor->frame_updates.front();
 
-      if (surface->get()->frame_callback) {
-        wl_callback_send_done(surface->get()->frame_callback, timestamp);
-        wl_resource_destroy(surface->get()->frame_callback);
-        surface->get()->frame_callback = nullptr;
+      if (surface->frame_callback) {
+        wl_callback_send_done(surface->frame_callback, timestamp);
+        wl_resource_destroy(surface->frame_callback);
+        surface->frame_callback = nullptr;
       }
 
-      if (surface->get()->state.buffer) {
-        wl_buffer_send_release(surface->get()->state.buffer);
-        // surface->buffer = nullptr; // optional if reused
+      if (surface->state.buffer) {
+        wl_buffer_send_release(surface->state.buffer);
+        // surface->state.buffer = nullptr; // optional if reused
       }
 
       compositor->frame_updates.pop();
@@ -85,7 +85,7 @@ namespace barock {
   compositor_t::schedule_frame_done(const shared_t<resource_t<surface_t>> &surface,
                                     uint32_t                               timestamp) {
     std::lock_guard lock(frame_updates_lock);
-    frame_updates.push(std::pair<shared_t<resource_t<surface_t>>, uint32_t>(surface, timestamp));
+    frame_updates.push(std::pair(surface, timestamp));
   }
 
   void
@@ -94,7 +94,7 @@ namespace barock {
     wl_client *client  = surf->owner();
 
     int32_t x, y, w, h;
-    surf->get()->extent(x, y, w, h);
+    surf->extent(x, y, w, h);
 
     double local_x{}, local_y{};
     local_x = root->cursor.x - x;
@@ -104,7 +104,7 @@ namespace barock {
     // A.) A `wl_seat` configured.
     // B.) A `wl_pointer` attached to that `wl_seat`.
     if (auto seat = wl_seat->find(client); seat) {
-      if (auto pointer = seat->get()->pointer.lock(); pointer) {
+      if (auto pointer = seat->pointer.lock(); pointer) {
         wl_pointer_send_enter(pointer->resource(), wl_display_next_serial(root->display()),
                               surf->resource(), wl_fixed_from_double(local_x),
                               wl_fixed_from_double(local_y));
@@ -118,7 +118,7 @@ namespace barock {
     wl_client *client  = surf->owner();
 
     if (auto seat = wl_seat->find(client); seat) {
-      if (auto pointer = seat->get()->pointer.lock(); pointer) {
+      if (auto pointer = seat->pointer.lock(); pointer) {
         wl_pointer_send_leave(pointer->resource(), wl_display_next_serial(root->display()),
                               surf->resource());
       }
@@ -133,7 +133,7 @@ namespace barock {
     wl_client *client  = surf->owner();
 
     if (auto seat = wl_seat->find(client); seat) {
-      if (auto pointer = seat->get()->pointer.lock(); pointer) {
+      if (auto pointer = seat->pointer.lock(); pointer) {
         wl_pointer_send_button(pointer->resource(), wl_display_next_serial(root->display()),
                                current_time_msec(), button, state);
       }
@@ -146,9 +146,9 @@ namespace barock {
     wl_client *client  = surf->owner();
 
     if (auto seat = wl_seat->find(client); seat) {
-      if (auto pointer = seat->get()->pointer.lock(); pointer) {
+      if (auto pointer = seat->pointer.lock(); pointer) {
         int32_t x, y, w, h;
-        surf->get()->extent(x, y, w, h);
+        surf->extent(x, y, w, h);
 
         double local_x{}, local_y{};
         local_x = root->cursor.x - x;
@@ -168,7 +168,7 @@ namespace barock {
       wl_client *client  = surface->owner();
 
       if (auto seat = wl_seat->find(client); seat) {
-        if (auto pointer = seat->get()->pointer.lock(); pointer) {
+        if (auto pointer = seat->pointer.lock(); pointer) {
           wl_pointer_send_leave(pointer->resource(), wl_display_next_serial(root->display()),
                                 surface->resource());
         }
@@ -189,12 +189,28 @@ namespace barock {
     // A.) A `wl_seat` configured.
     // B.) A `wl_keyboard` attached to that `wl_seat`.
     if (auto seat = wl_seat->find(client); seat) {
-      if (auto keyboard = seat->get()->keyboard.lock(); keyboard) {
+      if (auto keyboard = seat->keyboard.lock(); keyboard) {
         wl_array keys;
         wl_array_init(&keys);
         wl_keyboard_send_enter(keyboard->resource(), wl_display_next_serial(root->display()),
                                surf->resource(), &keys);
         wl_array_release(&keys);
+      }
+    }
+  }
+
+  void
+  compositor_t::_keyboard::send_leave(shared_t<resource_t<surface_t>> &surf) {
+    auto      &wl_seat = root->wl_seat;
+    wl_client *client  = surf->owner();
+
+    // Figure out whether the client has
+    // A.) A `wl_seat` configured.
+    // B.) A `wl_keyboard` attached to that `wl_seat`.
+    if (auto seat = wl_seat->find(client); seat) {
+      if (auto keyboard = seat->keyboard.lock(); keyboard) {
+        wl_keyboard_send_leave(keyboard->resource(), wl_display_next_serial(root->display()),
+                               surf->resource());
       }
     }
   }
@@ -207,7 +223,7 @@ namespace barock {
     wl_client *client  = surf->owner();
 
     if (auto seat = wl_seat->find(client); seat) {
-      if (auto keyboard = seat->get()->keyboard.lock(); keyboard) {
+      if (auto keyboard = seat->keyboard.lock(); keyboard) {
 
         wl_keyboard_send_key(keyboard->resource(), wl_display_next_serial(root->display()),
                              current_time_msec(), key, state);
@@ -225,7 +241,7 @@ namespace barock {
     wl_client *client  = surf->owner();
 
     if (auto seat = wl_seat->find(client); seat) {
-      if (auto keyboard = seat->get()->keyboard.lock(); keyboard) {
+      if (auto keyboard = seat->keyboard.lock(); keyboard) {
 
         wl_keyboard_send_modifiers(keyboard->resource(), wl_display_next_serial(root->display()),
                                    depressed, latched, locked, group);
@@ -240,7 +256,7 @@ namespace barock {
       auto      &wl_seat = root->wl_seat;
       wl_client *client  = surface->owner();
       if (auto seat = wl_seat->find(client); seat) {
-        if (auto keyboard = seat->get()->keyboard.lock(); keyboard) {
+        if (auto keyboard = seat->keyboard.lock(); keyboard) {
           wl_keyboard_send_leave(keyboard->resource(), wl_display_next_serial(root->display()),
                                  surface->resource());
         }
