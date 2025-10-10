@@ -22,7 +22,7 @@ namespace barock {
     xdg_toplevel_data_t               data;
     weak_t<resource_t<xdg_surface_t>> xdg_surface;
 
-    signal_token_t on_buffer_attached;
+    signal_token_t on_buffer_attach;
 
     xdg_toplevel_t(shared_t<resource_t<xdg_surface_t>>, const xdg_toplevel_data_t &data);
     ~xdg_toplevel_t();

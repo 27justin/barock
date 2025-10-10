@@ -2,6 +2,7 @@
 #include "barock/input.hpp"
 #include "barock/resource.hpp"
 
+#include "barock/core/shm_pool.hpp"
 #include "barock/core/surface.hpp"
 #include "barock/core/wl_seat.hpp"
 

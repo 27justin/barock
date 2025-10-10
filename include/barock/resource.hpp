@@ -64,6 +64,27 @@ namespace barock {
       }
     }
 
+    /**
+     * @brief Private aliasing constructor.
+     *
+     * This constructor takes a `shared_t` of another `_Ty`, alongside
+     * the down-/upcasted type.
+     *
+     * @param other The base/derived shared pointer.
+     * @param alias_ptr The pointer to the object casted as our `_Ty`
+     * @tparam _Other The base/derived class
+     */
+    template<typename _Other>
+    shared_t(const shared_t<_Other> &other, _Ty *alias_ptr)
+      requires std::is_base_of_v<_Ty, _Other> || std::is_base_of_v<_Other, _Ty>
+    {
+      control = reinterpret_cast<control_t *>(other.control); // safe: we keep original control
+      alias   = alias_ptr;
+
+      if (control)
+        control->strong.fetch_add(1, std::memory_order_relaxed);
+    }
+
     public:
     /**
      * @brief Constructs a shared_t from a raw pointer.
@@ -119,18 +140,6 @@ namespace barock {
       }
       typename std::remove_cv<_Other>::type *aliased = const_cast<decltype(aliased)>(other.alias);
       alias                                          = static_cast<_Ty *>(aliased);
-    }
-
-    // Aliasing constructor
-    template<typename _Other>
-    shared_t(const shared_t<_Other> &other, _Ty *alias_ptr)
-      requires std::is_base_of_v<_Ty, _Other> || std::is_base_of_v<_Other, _Ty>
-    {
-      control = reinterpret_cast<control_t *>(other.control); // safe: we keep original control
-      alias   = alias_ptr;
-
-      if (control)
-        control->strong.fetch_add(1, std::memory_order_relaxed);
     }
 
     /**
@@ -197,7 +206,7 @@ namespace barock {
      */
     explicit
     operator bool() const {
-      return control != nullptr && control->data != nullptr;
+      return get() != nullptr;
     }
 
     /**
@@ -239,6 +248,7 @@ namespace barock {
 
       // Copy new reference
       control = other.control;
+      alias   = other.alias;
       if (control)
         control->strong.fetch_add(1, std::memory_order_relaxed);
 
@@ -327,8 +337,13 @@ namespace barock {
      * Needed for constructing weak references.
      */
     friend class weak_t<_Ty>;
+
     template<typename>
     friend class shared_t;
+
+    template<typename _U, typename _Source>
+    friend shared_t<_U>
+    make_derived_shared(const shared_t<_Source> &, _U *);
   };
 
   struct resource_base_t {

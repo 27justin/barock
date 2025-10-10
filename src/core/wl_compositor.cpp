@@ -3,6 +3,7 @@
 #include "../log.hpp"
 #include "barock/compositor.hpp"
 #include "barock/core/region.hpp"
+#include "barock/core/shm_pool.hpp"
 #include "barock/core/surface.hpp"
 #include "barock/core/wl_compositor.hpp"
 #include "barock/resource.hpp"

@@ -5,63 +5,66 @@
 #include "../log.hpp"
 #include <wayland-server-core.h>
 
-struct wl_buffer_interface wl_buffer_impl{ .destroy = [](wl_client *, wl_resource *buffer) {
-  barock::shm_pool_t      &pool =
-    *reinterpret_cast<barock::shm_pool_t *>(wl_resource_get_user_data(buffer));
-  ERROR("Destroy SHM buffer");
-} };
+using namespace barock;
 
 void
-create_buffer(struct wl_client   *client,
-              struct wl_resource *wl_shm_pool,
-              uint32_t            id,
-              int32_t             offset,
-              int32_t             width,
-              int32_t             height,
-              int32_t             stride,
-              uint32_t            format) {
-  ERROR("shm pool :: create buffer");
-  auto pool = (barock::shm_pool_t *)wl_resource_get_user_data(wl_shm_pool);
+wl_buffer_destroy(wl_client *, wl_resource *);
 
-  wl_resource *buffer =
-    wl_resource_create(client, &wl_buffer_interface, wl_resource_get_version(wl_shm_pool), id);
-  if (!buffer) {
-    wl_client_post_no_memory(client);
-    return;
-  }
+void
+wl_shm_pool_create_buffer(wl_client   *client,
+                          wl_resource *wl_shm_pool,
+                          uint32_t     id,
+                          int32_t      offset,
+                          int32_t      width,
+                          int32_t      height,
+                          int32_t      stride,
+                          uint32_t     format);
 
-  barock::shm_buffer_t *buf = new barock::shm_buffer_t;
-  buf->pool                 = pool;
-  buf->resource             = buffer;
-  buf->offset               = offset;
-  buf->width                = width;
-  buf->height               = height;
-  buf->stride               = stride;
-  buf->format               = format;
+void
+wl_shm_pool_destroy(wl_client *, wl_resource *);
 
-  pool->buffers.emplace_back(buf);
+void
+wl_shm_pool_resize(wl_client *client, wl_resource *resource, int32_t size);
 
-  wl_resource_set_implementation(buffer, &wl_buffer_impl, buf, [](wl_resource *resource) {
-    barock::shm_buffer_t *buf = (barock::shm_buffer_t *)wl_resource_get_user_data(resource);
-    INFO("wl_buffer#cleanup pool: {}", (void *)buf->pool);
-    // Remove the buffer from the shm_pool_t.
-    // Since the shm_pool_t is reference counted (The mmapped memory will be released when all
-    // buffers that have been created from this pool are gone.), we also check for buffers.
-    // When none are present, and the pool is marked for deletion, we delete it.
-    auto it = std::find(buf->pool->buffers.begin(), buf->pool->buffers.end(), buf);
-    if (it != buf->pool->buffers.end())
-      buf->pool->buffers.erase(it);
+struct wl_buffer_interface wl_buffer_impl = { .destroy = wl_buffer_destroy };
 
-    if (buf->pool->marked_delete && buf->pool->buffers.size() == 0) {
-      // References are 0, we can delete it.
-      delete buf->pool;
-    }
-    delete buf;
+struct wl_shm_pool_interface wl_shm_pool_impl = { .create_buffer = wl_shm_pool_create_buffer,
+                                                  .destroy       = wl_shm_pool_destroy,
+                                                  .resize        = wl_shm_pool_resize };
+
+void
+wl_shm_pool_create_buffer(wl_client   *client,
+                          wl_resource *wl_shm_pool,
+                          uint32_t     id,
+                          int32_t      offset,
+                          int32_t      width,
+                          int32_t      height,
+                          int32_t      stride,
+                          uint32_t     format) {
+  auto pool = from_wl_resource<shm_pool_t>(wl_shm_pool);
+
+  auto buffer = make_resource<shm_buffer_t>(client, wl_buffer_interface, wl_buffer_impl,
+                                            wl_resource_get_version(wl_shm_pool), id);
+
+  buffer->pool   = pool;
+  buffer->offset = offset;
+  buffer->width  = width;
+  buffer->height = height;
+  buffer->stride = stride;
+  buffer->format = format;
+
+  buffer->on_destroy.connect([buffer](wl_resource *) mutable {
+    TRACE("wl_buffer#cleanup");
+    auto it = std::find(buffer->pool->buffers.begin(), buffer->pool->buffers.end(), buffer);
+    if (it != buffer->pool->buffers.end())
+      buffer->pool->buffers.erase(it);
   });
+
+  pool->buffers.emplace_back(buffer);
 }
 
 void
-destroy(struct wl_client *client, struct wl_resource *resource) {
+wl_shm_pool_destroy(wl_client *client, wl_resource *wl_shm_pool) {
   /*
     destroy the pool
 
@@ -70,21 +73,12 @@ destroy(struct wl_client *client, struct wl_resource *resource) {
     The mmapped memory will be released when all buffers that have been created from this pool are
     gone.
    */
-  ERROR("shm pool :: destroy");
-  barock::shm_pool_t *pool = static_cast<barock::shm_pool_t *>(wl_resource_get_user_data(resource));
-  // Only delete the associated memory when no buffers hold the memory anymore.
-  if (pool->buffers.size() == 0) {
-    delete pool;
-  } else {
-    // Otherwise mark for deletion, then it will be cleaned up by the
-    // wl_resource cleanup function of wl_buffer. (see above.)
-    pool->marked_delete = true;
-  }
+  auto pool = from_wl_resource<shm_pool_t>(wl_shm_pool);
+  wl_resource_destroy(pool->resource());
 }
 
 void
-resize(struct wl_client *client, struct wl_resource *resource, int32_t size) {
-  ERROR("shm pool :: resize");
+wl_shm_pool_resize(wl_client *client, wl_resource *wl_shm_pool, int32_t size) {
   /*
     change the size of the pool mapping
 
@@ -96,8 +90,7 @@ resize(struct wl_client *client, struct wl_resource *resource, int32_t size) {
     the file corresponding to the file descriptor passed at creation time. It is the client's
     responsibility to ensure that the file is at least as big as the new pool size.
    */
-  barock::shm_pool_t *pool = (barock::shm_pool_t *)wl_resource_get_user_data(resource);
-
+  auto pool = from_wl_resource<shm_pool_t>(wl_shm_pool);
   if (size < pool->size) {
     wl_client_post_implementation_error(client, "new size is smaller than original size");
     return;
@@ -116,30 +109,20 @@ resize(struct wl_client *client, struct wl_resource *resource, int32_t size) {
   }
 }
 
-struct wl_shm_pool_interface wl_shm_pool_impl = { .create_buffer = create_buffer,
-                                                  .destroy       = destroy,
-                                                  .resize        = resize };
+void
+wl_buffer_destroy(wl_client *, wl_resource *wl_buffer) {
+  wl_resource_destroy(wl_buffer);
+}
 
 namespace barock {
 
-  shm_pool_t::shm_pool_t(wl_resource *res, int fd, int size, void *ptr)
-    : resource(res)
-    , data(ptr)
+  shm_pool_t::shm_pool_t(int fd, int size, void *ptr)
+    : data(ptr)
     , size(size)
     , fd(fd) {}
 
   shm_pool_t::~shm_pool_t() {
     munmap(data, size);
-  }
-
-  void
-  shm_pool_t::destroy(wl_resource *res) {
-    shm_pool_t *pool = reinterpret_cast<shm_pool_t *>(wl_resource_get_user_data(res));
-    if (pool->buffers.size() > 0) {
-      pool->marked_delete = true;
-    } else {
-      delete pool;
-    }
   }
 
   void *

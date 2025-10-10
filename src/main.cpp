@@ -249,10 +249,9 @@ draw_surface(barock::compositor_t                                    &compositor
   y += local_y;
 
   if (surface->state.buffer) {
-    barock::shm_buffer_t *shm =
-      (barock::shm_buffer_t *)wl_resource_get_user_data(surface->state.buffer);
-    width  = shm->width;
-    height = shm->height;
+    auto &shm = surface->state.buffer;
+    width     = shm->width;
+    height    = shm->height;
   }
 
   if (surface->role && surface->role->type_id() == barock::xdg_surface_t::id()) {
@@ -274,10 +273,7 @@ draw_surface(barock::compositor_t                                    &compositor
   GL_CHECK;
 
   if (surface->state.buffer) {
-    barock::shm_buffer_t *buffer =
-      (barock::shm_buffer_t *)wl_resource_get_user_data(surface->state.buffer);
-
-    texture = upload_texture(*buffer);
+    texture = upload_texture(*surface->state.buffer);
     GL_CHECK;
 
     draw_quad(program, texture);

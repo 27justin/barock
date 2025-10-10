@@ -1,5 +1,6 @@
 #include "barock/compositor.hpp"
 
+#include "barock/core/shm_pool.hpp"
 #include "barock/core/surface.hpp"
 #include "barock/shell/xdg_surface.hpp"
 #include "barock/shell/xdg_toplevel.hpp"
@@ -60,9 +61,7 @@ namespace barock {
     auto xdg_surface =
       make_resource<xdg_surface_t>(client, xdg_surface_interface, xdg_surface_impl,
                                    wl_resource_get_version(xdg_wm_base), id, *shell, surface);
-    INFO("xdg_surface: {}", (void *)xdg_surface.get());
     surface->role = xdg_surface;
-    INFO("role id: {}", surface->role->type_id());
 
     // Send the configure event
     xdg_surface_send_configure(xdg_surface->resource(),

@@ -20,9 +20,9 @@ namespace barock {
     , data(prop_data) {
 
     // Attach on_buffer_attach listener to resize the window
-    on_buffer_attached = base->surface.lock()->on_buffer_attached.connect(
+    on_buffer_attach = base->surface.lock()->on_buffer_attach.connect(
       [&data = this->data, surface = this->xdg_surface,
-       &on_buffer_attached = this->on_buffer_attached](const shm_buffer_t &buf) mutable {
+       &on_buffer_attach = this->on_buffer_attach](const shm_buffer_t &buf) mutable {
         // TODO: We should only do this once, right now it auto resizes
         // to always match the buffer contents.
         data.width  = buf.width;
@@ -31,7 +31,7 @@ namespace barock {
         // Immediately disconnect, we only resize once to fit.
         if (auto xdg_surface = surface.lock()) {
           if (auto wl_surface = xdg_surface->surface.lock()) {
-            wl_surface->on_buffer_attached.disconnect(on_buffer_attached);
+            wl_surface->on_buffer_attach.disconnect(on_buffer_attach);
           }
         }
       });
@@ -39,7 +39,7 @@ namespace barock {
 
   xdg_toplevel_t::~xdg_toplevel_t() {
     if (auto surf = xdg_surface.lock(); surf) {
-      surf->surface.lock()->on_buffer_attached.disconnect(on_buffer_attached);
+      surf->surface.lock()->on_buffer_attach.disconnect(on_buffer_attach);
     }
   }
 }

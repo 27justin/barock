@@ -72,11 +72,11 @@ namespace barock {
 
       // Check for buffer
       if (state.buffer) {
-        shm_buffer_t *shm = (shm_buffer_t *)wl_resource_get_user_data(state.buffer);
-        x                 = 0;
-        y                 = 0;
-        width             = shm->width;
-        height            = shm->height;
+        auto &shm = state.buffer;
+        x         = 0;
+        y         = 0;
+        width     = shm->width;
+        height    = shm->height;
       } else {
         WARN("Surface does not have a buffer attached, no valid size!");
       }
@@ -122,10 +122,8 @@ wl_surface_commit(wl_client *client, wl_resource *wl_surface) {
   // Check whether the buffers changed, and the new buffer is not a
   // nullptr, when set to nullptr, the compositor detaches the buffer
   // and stops rendering that surface.
-  if (old_state.buffer != surface->state.buffer && surface->state.buffer) {
-    barock::shm_buffer_t *buffer =
-      (barock::shm_buffer_t *)wl_resource_get_user_data(surface->state.buffer);
-    surface->on_buffer_attached.emit(*buffer);
+  if (surface->state.buffer) {
+    surface->on_buffer_attach.emit(*surface->state.buffer);
   }
 
   surface->staging = barock::surface_state_t{ // Copy our subsurfaces, those are persistent
@@ -181,19 +179,19 @@ wl_surface_frame(wl_client *client, wl_resource *wl_surface, uint32_t callback) 
 void
 wl_surface_attach(wl_client   *client,
                   wl_resource *wl_surface,
-                  wl_resource *buffer,
+                  wl_resource *wl_buffer,
                   int32_t      x,
                   int32_t      y) {
   auto surface = from_wl_resource<surface_t>(wl_surface);
 
-  if (buffer == nullptr) {
+  if (wl_buffer == nullptr) {
+    TRACE("wl_surface#attach: removing buffer from wl_surface");
     surface->staging.buffer = nullptr;
     return;
   }
 
-  barock::shm_buffer_t *shm_buffer = (barock::shm_buffer_t *)wl_resource_get_user_data(buffer);
   // Buffers are double-buffered
-  surface->staging.buffer = buffer;
+  surface->staging.buffer = from_wl_resource<shm_buffer_t>(wl_buffer);
 }
 
 void

@@ -43,12 +43,12 @@ namespace barock {
 
   struct surface_t;
   struct surface_state_t {
-    region_t     opaque;
-    region_t     input;
-    region_t     damage;
-    wl_resource *buffer;
-    int32_t      transform;
-    int32_t      scale;
+    region_t                           opaque;
+    region_t                           input;
+    region_t                           damage;
+    shared_t<resource_t<shm_buffer_t>> buffer;
+    int32_t                            transform;
+    int32_t                            scale;
     struct {
       int32_t x, y;
     } offset;
@@ -66,7 +66,7 @@ namespace barock {
 
     shared_t<base_surface_role_t> role;
 
-    signal_t<shm_buffer_t &> on_buffer_attached;
+    signal_t<shm_buffer_t &> on_buffer_attach;
 
     /// Create an empty surface with nothing associated.
     surface_t();

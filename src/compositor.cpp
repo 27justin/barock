@@ -1,8 +1,10 @@
 #include "barock/compositor.hpp"
+#include "barock/resource.hpp"
 #include "barock/util.hpp"
 
 #include "barock/core/region.hpp"
 #include "barock/core/shm.hpp"
+#include "barock/core/shm_pool.hpp"
 #include "barock/core/wl_compositor.hpp"
 #include "barock/core/wl_data_device_manager.hpp"
 #include "barock/core/wl_output.hpp"
@@ -37,7 +39,7 @@ namespace barock {
       }
 
       if (surface->state.buffer) {
-        wl_buffer_send_release(surface->state.buffer);
+        wl_buffer_send_release(surface->state.buffer->resource());
         // surface->state.buffer = nullptr; // optional if reused
       }
 
@@ -60,7 +62,7 @@ namespace barock {
     // Initialize protocols
     xdg_shell              = make_unique<xdg_shell_t>(*this);
     wl_compositor          = make_unique<wl_compositor_t>(*this);
-    shm                    = make_unique<shm_t>(display_);
+    shm                    = make_unique<shm_t>(*this);
     dmabuf                 = make_unique<dmabuf_t>(*this);
     wl_subcompositor       = make_unique<wl_subcompositor_t>(*this);
     wl_seat                = make_unique<wl_seat_t>(*this);

@@ -246,7 +246,6 @@ namespace minidrm::drm {
     data = new handle_data_t;
 #if defined(MINIDRM_EGL) || defined(MINIDRM_VULKAN)
     data->gbm = gbm_create_device(fd);
-    printf("Creating GBM device... %p\n", data->gbm);
 #endif
 
 #if defined(MINIDRM_EGL)

@@ -39,8 +39,6 @@ get_toplevel(wl_client *client, wl_resource *xdg_surface, uint32_t id) {
     return;
   }
 
-  INFO("Creating new xdg_toplevel_t");
-
   auto toplevel =
     make_resource<xdg_toplevel_t>(client, xdg_toplevel_interface, xdg_toplevel_impl,
                                   wl_resource_get_version(surface->resource()), id, surface,
