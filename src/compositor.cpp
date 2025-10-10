@@ -72,6 +72,7 @@ namespace barock {
 
     pointer.root  = this;
     keyboard.root = this;
+    window.root   = this;
   }
 
   compositor_t::~compositor_t() {}
@@ -150,18 +151,17 @@ namespace barock {
         int32_t x, y, w, h;
         surface->extent(x, y, w, h);
 
+        if (surface->role && surface->role->type_id() == barock::xdg_surface_t::id()) {
+          auto xdg_surface = shared_cast<barock::xdg_surface_t>(surface->role);
+          if (xdg_surface) {
+            x -= xdg_surface->x;
+            y -= xdg_surface->y;
+          }
+        }
+
         double local_x{}, local_y{};
         local_x = (root->cursor.x - x);
         local_y = (root->cursor.y - y);
-
-        if (surface->role && surface->role->type_id() == barock::xdg_surface_t::id()) {
-          // Factor in logical offset (for client decorations, etc.)
-          auto xdg_surface = shared_cast<barock::xdg_surface_t>(surface->role);
-          if (xdg_surface) {
-            local_x += xdg_surface->x;
-            local_y += xdg_surface->y;
-          }
-        }
 
         wl_pointer_send_motion(pointer->resource(), current_time_msec(),
                                wl_fixed_from_double(local_x), wl_fixed_from_double(local_y));
@@ -275,6 +275,40 @@ namespace barock {
     focus = surf;
     if (surf) // handle nullptr (no focus)
       send_enter(surf);
+  }
+
+  void
+  compositor_t::_window::activate(const shared_t<surface_t> &surface) {
+    // We can't activate a surface that has no role.
+    if (!surface->has_role()) {
+      TRACE("Tried to activate window without a role!");
+      return;
+    }
+
+    if (surface->role->type_id() == xdg_surface_t::id()) {
+      auto xdg_surface = shared_cast<xdg_surface_t>(surface->role);
+      root->xdg_shell->activate(xdg_surface);
+      activated = surface;
+      return;
+    }
+    assert(false && "Unhandled surface role in compositor_t::window_#activate");
+  }
+
+  void
+  compositor_t::_window::deactivate(const shared_t<surface_t> &surface) {
+    // We can't deactivate a surface that has no role.
+    if (!surface->has_role()) {
+      TRACE("Trying to deactivate surface that has no role!");
+      return;
+    }
+
+    if (surface->role->type_id() == xdg_surface_t::id()) {
+      auto xdg_surface = shared_cast<xdg_surface_t>(surface->role);
+      root->xdg_shell->deactivate(xdg_surface);
+      activated = nullptr;
+      return;
+    }
+    assert(false && "Unhandled surface role in compositor_t::window_#activate");
   }
 
 } // namespace barock

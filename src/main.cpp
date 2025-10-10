@@ -248,8 +248,14 @@ draw_surface(barock::compositor_t                                    &compositor
   x += local_x;
   y += local_y;
 
+  if (surface->state.buffer) {
+    barock::shm_buffer_t *shm =
+      (barock::shm_buffer_t *)wl_resource_get_user_data(surface->state.buffer);
+    width  = shm->width;
+    height = shm->height;
+  }
+
   if (surface->role && surface->role->type_id() == barock::xdg_surface_t::id()) {
-    // Factor in logical offset (for client decorations, etc.)
     auto xdg_surface = shared_cast<barock::xdg_surface_t>(surface->role);
     if (xdg_surface) {
       x -= xdg_surface->x;
@@ -322,8 +328,8 @@ draw(barock::compositor_t                                      &compositor,
     // Draw cursor
     if (auto pointer = compositor.cursor.surface.lock(); pointer) {
       draw_surface(compositor, quad_program, pointer, *screen,
-                   compositor.cursor.x + compositor.cursor.hotspot.x,
-                   compositor.cursor.y + compositor.cursor.hotspot.y);
+                   compositor.cursor.x - compositor.cursor.hotspot.x,
+                   compositor.cursor.y - compositor.cursor.hotspot.y);
     } else {
       glEnable(GL_SCISSOR_TEST);
       glScissor((int)compositor.cursor.x, (int)screen->mode.height() - (compositor.cursor.y + 16),
@@ -365,7 +371,6 @@ main() {
                          key_state == LIBINPUT_KEY_STATE_PRESSED ? XKB_KEY_DOWN : XKB_KEY_UP);
 
     if (auto surface = compositor.keyboard.focus.lock(); surface) {
-      INFO("Surface is still alive! {}", surface.strong());
       xkb_mod_mask_t depressed =
         xkb_state_serialize_mods(compositor.keyboard.xkb.state, XKB_STATE_MODS_DEPRESSED);
       xkb_mod_mask_t latched =
@@ -377,7 +382,6 @@ main() {
 
       // Send the modifiers to the focused client
       compositor.keyboard.send_modifiers(surface, depressed, latched, locked, group);
-
       compositor.keyboard.send_key(surface, scancode, key_state);
       return;
     }
@@ -432,7 +436,7 @@ main() {
       // Check if we are still within the surface bounds.
       if (!in_bounds) {
         compositor.pointer.set_focus(nullptr);
-        WARN("Pointer left previous focused surface, searching for new one.");
+        TRACE("Pointer left previous focused surface, searching for new one.");
         goto focus_new_surface;
       }
       compositor.pointer.send_motion(surface);
@@ -440,14 +444,14 @@ main() {
     }
 
   focus_new_surface:
-    // INFO("Trying to focus new surface.");
     for (auto &surf : compositor.wl_compositor->surfaces) {
       // Compute the position of the surface
       surf->extent(x, y, w, h);
 
       if (cursor.x >= x && cursor.x < x + w && cursor.y >= y && cursor.y < y + h) {
-        // Found a new surface, we'll focus it with keyboard
-        // (mouse focus is done by `on_mouse_move`)
+        // Found a new surface, we'll focus it with the pointer
+        // (keyboard focus is done by `on_mouse_button`, when the user
+        // left-clicks a window.)
         compositor.pointer.set_focus(surf);
         break;
       }
@@ -462,11 +466,27 @@ main() {
       compositor.pointer.send_button(surface, btn.button, btn.state);
 
       if (btn.button == BTN_LEFT) {
+        // First deactivate whatever is currently activated.
+        if (auto surface = compositor.window.activated.lock()) {
+          compositor.window.deactivate(surface);
+        }
+
+        // Then activate the new window
+        compositor.window.activate(surface);
+
         if (compositor.keyboard.focus != surface) {
           compositor.keyboard.set_focus(surface);
         }
       }
       return;
+    } else {
+      //
+      // Clicking outside of any window loses all focus
+      //
+      if (auto surface = compositor.window.activated.lock()) {
+        compositor.window.deactivate(surface);
+      }
+      compositor.keyboard.set_focus(nullptr);
     }
   });
 

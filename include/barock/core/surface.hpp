@@ -6,6 +6,7 @@
 #include "barock/resource.hpp"
 #include "wl/wayland-protocol.h"
 
+#include <cstdint>
 #include <vector>
 
 extern struct wl_surface_interface wl_surface_impl;
@@ -82,6 +83,12 @@ namespace barock {
 
     void
     extent(int32_t &, int32_t &, int32_t &, int32_t &) const;
+
+    bool
+    has_role() const;
+
+    void
+    global_coords_to_local(int32_t, int32_t) const;
   };
 
 };

@@ -143,8 +143,8 @@ xdg_toplevel_move(wl_client   *client,
   // place, such as updating a pointer cursor, during the
   // move. There is no guarantee that the device focus will return
   // when the move is completed.
-  compositor->pointer.send_leave(wl_surface);
-  compositor->keyboard.send_leave(wl_surface);
+  compositor->pointer.set_focus(nullptr);
+  compositor->keyboard.set_focus(nullptr);
 
   subscriptions->on_mouse_move = compositor->input->on_mouse_move.connect(
     [toplevel, compositor, subscriptions](const auto &event) mutable {
@@ -194,10 +194,11 @@ xdg_toplevel_resize(wl_client   *client,
   auto compositor = wl_surface->compositor;
 
   struct _data {
-    signal_token_t on_mouse_move, on_mouse_button;
-    double         start_x{}, start_y{};
-    int32_t        win_x{}, win_y{}, win_w{}, win_h{};
-    uint32_t       edges{};
+    signal_token_t    on_mouse_move, on_mouse_button;
+    double            start_x{}, start_y{};
+    int32_t           win_x{}, win_y{}, win_w{}, win_h{};
+    uint32_t          edges{};
+    std::atomic<bool> active{ true };
   };
 
   auto subscriptions     = shared_t(new _data{});
@@ -210,11 +211,14 @@ xdg_toplevel_resize(wl_client   *client,
   subscriptions->edges   = edges;
 
   // Same behavior as move: lose focus
-  compositor->pointer.send_leave(wl_surface);
-  compositor->keyboard.send_leave(wl_surface);
+  compositor->pointer.set_focus(nullptr);
+  compositor->keyboard.set_focus(nullptr);
 
   subscriptions->on_mouse_move = compositor->input->on_mouse_move.connect(
     [wl_surface, toplevel, compositor, subscriptions](const auto &event) mutable {
+      if (!subscriptions->active.load())
+        return;
+
       double dx = compositor->cursor.x - subscriptions->start_x;
       double dy = compositor->cursor.y - subscriptions->start_y;
 
@@ -260,8 +264,17 @@ xdg_toplevel_resize(wl_client   *client,
   subscriptions->on_mouse_button = compositor->input->on_mouse_button.connect(
     [compositor, subscriptions, toplevel, wl_surface](const auto &event) mutable {
       if (event.button == BTN_LEFT && event.state == 0) {
-        // Send final empty configure event.
+        subscriptions->active.store(false);
+
         wl_array state;
+        wl_array_init(&state);
+        *reinterpret_cast<xdg_toplevel_state *>(wl_array_add(&state, sizeof(xdg_toplevel_state))) =
+          XDG_TOPLEVEL_STATE_RESIZING;
+        xdg_toplevel_send_configure(toplevel->resource(), toplevel->data.width,
+                                    toplevel->data.height, &state);
+        wl_array_release(&state);
+
+        // Send final empty configure event.
         wl_array_init(&state);
         xdg_toplevel_send_configure(toplevel->resource(), toplevel->data.width,
                                     toplevel->data.height, &state);

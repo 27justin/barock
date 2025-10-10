@@ -105,6 +105,23 @@ namespace barock {
 
     } keyboard;
 
+    struct _window {
+      compositor_t *root;
+
+      /// Send the activation state to a surface (should the underlying
+      /// role implement this)
+      void
+      activate(const shared_t<surface_t> &);
+
+      /// Send the deactivation state to a surface (should the underlying
+      /// role implement this)
+      void
+      deactivate(const shared_t<surface_t> &);
+
+      /// Currently activated surface
+      weak_t<surface_t> activated{};
+    } window;
+
     compositor_t(minidrm::drm::handle_t drm_handle, const std::string &seat);
     ~compositor_t();
 

@@ -9,6 +9,7 @@ target_compile_options(barock PRIVATE "-fdiagnostics-color")
 target_compile_options(barock PRIVATE "-std=c++23")
 target_compile_options(barock PRIVATE "-fsanitize=address")
 target_compile_options(barock PRIVATE "-Og" "-g3")
+target_compile_options(barock PRIVATE "-Werror=implicit-fallthrough")
 target_link_options(barock PRIVATE "-fsanitize=address")
 target_link_libraries(barock PUBLIC m)
 

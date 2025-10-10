@@ -50,10 +50,12 @@ namespace barock {
           auto role = xdg_surface.get_role<xdg_toplevel_t>();
 
           // Get bounds of window's drawable content
-          x      = role->data.x;
-          y      = role->data.y;
+          x = role->data.x;
+          y = role->data.y;
+
           width  = role->data.width;
           height = role->data.height;
+
           return;
         }
         case barock::xdg_role_t::ePopup: {
@@ -79,6 +81,11 @@ namespace barock {
         WARN("Surface does not have a buffer attached, no valid size!");
       }
     }
+  }
+
+  bool
+  surface_t::has_role() const {
+    return role.get() != nullptr;
   }
 }
 

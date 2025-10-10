@@ -68,4 +68,44 @@ namespace barock {
     xdg_surface_send_configure(xdg_surface->resource(),
                                wl_display_next_serial(shell->compositor.display()));
   }
+
+  void
+  xdg_shell_t::deactivate(const shared_t<xdg_surface_t> &xdg_surface) {
+    switch (xdg_surface->role) {
+      case xdg_role_t::eToplevel: {
+        auto     toplevel = shared_cast<resource_t<xdg_toplevel_t>>(xdg_surface->role_impl);
+        wl_array state;
+        wl_array_init(&state);
+        xdg_toplevel_send_configure(toplevel->resource(), xdg_surface->width, xdg_surface->height,
+                                    &state);
+        wl_array_release(&state);
+        break;
+      }
+      default: {
+        ERROR("Tried to deactivate role {}; not implemented!", (int)xdg_surface->role);
+        assert(false && "Unhandled xdg_surface role in xdg_shell_t#deactivate!");
+      }
+    }
+  }
+
+  void
+  xdg_shell_t::activate(const shared_t<xdg_surface_t> &xdg_surface) {
+    switch (xdg_surface->role) {
+      case xdg_role_t::eToplevel: {
+        auto     toplevel = shared_cast<resource_t<xdg_toplevel_t>>(xdg_surface->role_impl);
+        wl_array state;
+        wl_array_init(&state);
+        void *p                    = wl_array_add(&state, sizeof(xdg_toplevel_state));
+        *((xdg_toplevel_state *)p) = XDG_TOPLEVEL_STATE_ACTIVATED;
+        xdg_toplevel_send_configure(toplevel->resource(), xdg_surface->width, xdg_surface->height,
+                                    &state);
+        wl_array_release(&state);
+        break;
+      }
+      default: {
+        ERROR("Tried to activate role {}; not implemented!", (int)xdg_surface->role);
+        assert(false && "Unhandled xdg_surface role in xdg_shell_t#activate!");
+      }
+    }
+  }
 };

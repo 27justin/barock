@@ -16,9 +16,7 @@ namespace barock {
     , role(xdg_role_t::eNone)
     , role_impl() {}
 
-  xdg_surface_t::~xdg_surface_t() {
-    WARN("~xdg_surface_t!");
-  }
+  xdg_surface_t::~xdg_surface_t() {}
 }
 
 /*
@@ -88,7 +86,7 @@ xdg_surface_set_window_geometry(wl_client   *client,
   surface->width  = w;
   surface->height = h;
 
-  INFO("xdg_surface#set_window_geometry(x = {}, y = {}, width = {}, height = {})", x, y, w, h);
+  surface->on_geometry_change.emit();
 }
 
 void

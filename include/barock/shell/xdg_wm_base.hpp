@@ -28,6 +28,8 @@ namespace barock {
 
     int32_t x, y, width, height;
 
+    signal_t<void> on_geometry_change;
+
     ~xdg_surface_t();
     xdg_surface_t(xdg_shell_t &parent, shared_t<resource_t<surface_t>> base);
 
@@ -60,6 +62,16 @@ namespace barock {
     handle_xdg_base_get_surface(wl_client *, wl_resource *, uint32_t, wl_resource *);
     static void
     xdg_surface_destroy(wl_resource *);
+
+    /**
+     * @brief Activate a surface.  This method sends a `configure`
+     * event, with the ACTIVATED flag set.
+     */
+    void
+    activate(const shared_t<xdg_surface_t> &);
+
+    void
+    deactivate(const shared_t<xdg_surface_t> &);
 
     private:
     static void

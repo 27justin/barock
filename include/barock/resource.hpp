@@ -56,11 +56,11 @@ namespace barock {
      *
      * @param ctrl Pointer to an existing control block.
      */
-    explicit shared_t(control_t *ctrl)
-      : control(ctrl) {
+    explicit shared_t(control_t *ctrl, _Ty *alias)
+      : control(ctrl)
+      , alias(alias) {
       if (control) {
         control->strong.fetch_add(1);
-        alias = control->data;
       }
     }
 
@@ -112,12 +112,13 @@ namespace barock {
      */
     template<typename _Other>
     shared_t(const shared_t<_Other> &other)
-      requires std::is_base_of_v<_Other, _Ty>
+      requires std::is_base_of_v<_Ty, _Other>
       : control(reinterpret_cast<control_t *>(other.control)) {
       if (control) {
         control->strong.fetch_add(1, std::memory_order_relaxed);
-        alias = control->data;
       }
+      typename std::remove_cv<_Other>::type *aliased = const_cast<decltype(aliased)>(other.alias);
+      alias                                          = static_cast<_Ty *>(aliased);
     }
 
     // Aliasing constructor
@@ -384,9 +385,9 @@ namespace barock {
       return this->resource_;
     }
 
-    const wl_resource *
+    wl_resource *
     resource() const {
-      return this->resource_;
+      return const_cast<wl_resource *>(this->resource_);
     }
 
     void
@@ -426,6 +427,7 @@ namespace barock {
      * This is shared with associated shared_t instances.
      */
     typename shared_t<_Ty>::control_t *control;
+    _Ty                               *alias;
 
     public:
     /**
@@ -436,13 +438,15 @@ namespace barock {
      * @param parent A shared_t instance to observe.
      */
     weak_t(const shared_t<_Ty> &parent)
-      : control(parent.control) {
+      : control(parent.control)
+      , alias(parent.alias) {
       // Increment weak references to ensure control block is retained
       control->weak.fetch_add(1);
     }
 
     weak_t(const weak_t &other)
-      : control(other.control) {
+      : control(other.control)
+      , alias(other.alias) {
       if (control)
         control->weak.fetch_add(1, std::memory_order_relaxed);
     }
@@ -453,7 +457,8 @@ namespace barock {
      * Constructs an empty (null) weak_t.
      */
     explicit weak_t()
-      : control(nullptr) {}
+      : control(nullptr)
+      , alias(nullptr) {}
 
     /**
      * @brief Destructor.
@@ -496,6 +501,7 @@ namespace barock {
 
       // Assign new control block
       control = parent.control;
+      alias   = parent.alias;
       if (control)
         control->weak.fetch_add(1);
 
@@ -526,7 +532,7 @@ namespace barock {
     shared_t<_Ty>
     lock() {
       if (control && control->strong.load() > 0) {
-        return shared_t<_Ty>(control); // Uses private constructor
+        return shared_t<_Ty>(control, alias);
       } else {
         return nullptr;
       }
@@ -600,6 +606,14 @@ namespace barock {
     auto derived = static_cast<_Target *>(ptr.get());
     assert(derived && "Invalid shared_t cast");
     return make_derived_shared<_Target>(ptr, derived);
+  }
+
+  template<typename _Target, typename _Source>
+  shared_t<const _Target>
+  shared_cast(const shared_t<_Source> &ptr) {
+    auto derived = static_cast<const _Target *>(ptr.get());
+    assert(derived && "Invalid shared_t cast");
+    return make_derived_shared<const _Target>(ptr, derived);
   }
 
 }
