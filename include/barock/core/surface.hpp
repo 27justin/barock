@@ -53,7 +53,10 @@ namespace barock {
       int32_t x, y;
     } offset;
 
-    std::vector<shared_t<resource_t<subsurface_t>>> subsurfaces;
+    struct {
+      std::vector<shared_t<subsurface_t>> children;
+      weak_t<surface_t>                   parent;
+    } subsurface;
   };
 
   struct surface_t {
@@ -83,6 +86,21 @@ namespace barock {
 
     void
     extent(int32_t &, int32_t &, int32_t &, int32_t &) const;
+
+    enum position_type_t { eLocal, eGlobal };
+
+    region_t
+    position(position_type_t relative_to) const;
+
+    /**
+     * @brief Lookup a subsurface at the given coordinates, returns a
+     * empty `nullptr` shared when none found, or out of bounds.
+     *
+     * @param x Horizontal position relative to the surface.
+     * @param y Vertical position relative to the surface.
+     */
+    shared_t<surface_t>
+    lookup_at(double x, double y);
 
     bool
     has_role() const;

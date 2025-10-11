@@ -32,10 +32,6 @@ namespace barock {
     wl_resource_set_implementation(resource, &wl_compositor_impl, ud, NULL);
   }
 
-  // ----------------------------------
-  //  WAYLAND PROTOCOL IMPLEMENTATION
-  // ----------------------------------
-
   void
   wl_compositor_t::handle_create_surface(wl_client   *client,
                                          wl_resource *compositor_base_res,

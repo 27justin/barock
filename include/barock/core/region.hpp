@@ -10,16 +10,21 @@ namespace barock {
 
     region_t
     operator+(const region_t &) const;
+
     void
     operator+=(const region_t &);
 
     region_t
     operator-(const region_t &) const;
+
     void
     operator-=(const region_t &);
 
     bool
     operator==(const region_t &) const;
+
+    bool
+    intersects(int32_t x, int32_t y) const;
   };
 
   // Wayland protocol implementation

@@ -9,8 +9,6 @@
 #include <map>
 #include <wayland-server-core.h>
 
-#define DECLARE_SURFACE_ROLE(name, ...)
-
 namespace barock {
   struct xdg_shell_t;
   struct xdg_toplevel_t;
@@ -47,11 +45,9 @@ namespace barock {
   };
 
   class xdg_shell_t {
-    private:
-    compositor_t &compositor;
-
     public:
-    wl_global *global;
+    compositor_t &compositor;
+    wl_global    *global;
 
     xdg_shell_t(compositor_t &);
     ~xdg_shell_t();
@@ -62,13 +58,6 @@ namespace barock {
      * position N the bottom-most.
      */
     std::vector<shared_t<xdg_surface_t>> windows;
-
-    static void
-    handle_xdg_base_destroy(wl_client *, wl_resource *);
-    static void
-    handle_xdg_base_get_surface(wl_client *, wl_resource *, uint32_t, wl_resource *);
-    static void
-    xdg_surface_destroy(wl_resource *);
 
     /**
      * @brief Activate a surface.  This method sends a `configure`

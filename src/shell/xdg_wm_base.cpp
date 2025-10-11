@@ -10,10 +10,21 @@
 #include "wl/xdg-shell-protocol.h"
 #include <wayland-server-core.h>
 
-static const struct xdg_wm_base_interface xdg_wm_base_impl = {
-  .destroy           = &barock::xdg_shell_t::handle_xdg_base_destroy,
+using namespace barock;
+
+void
+xdg_wm_base_destroy(wl_client *, wl_resource *);
+
+void
+xdg_wm_base_get_xdg_surface(wl_client   *client,
+                            wl_resource *xdg_wm_base,
+                            uint32_t     id,
+                            wl_resource *wl_surface);
+
+struct xdg_wm_base_interface xdg_wm_base_impl = {
+  .destroy           = xdg_wm_base_destroy,
   .create_positioner = nullptr,
-  .get_xdg_surface   = &barock::xdg_shell_t::handle_xdg_base_get_surface,
+  .get_xdg_surface   = xdg_wm_base_get_xdg_surface,
   .pong              = nullptr,
 };
 
@@ -32,43 +43,6 @@ namespace barock {
     struct wl_resource *resource = wl_resource_create(client, &xdg_wm_base_interface, version, id);
 
     wl_resource_set_implementation(resource, &xdg_wm_base_impl, shell, NULL);
-  }
-
-  // ----------------------------------
-  //  WAYLAND PROTOCOL IMPLEMENTATION
-  // ----------------------------------
-
-  void
-  xdg_shell_t::handle_xdg_base_destroy(wl_client *client, wl_resource *res) {
-    wl_resource_destroy(res);
-  }
-
-  void
-  xdg_shell_t::handle_xdg_base_get_surface(wl_client   *client,
-                                           wl_resource *xdg_wm_base,
-                                           uint32_t     id,
-                                           wl_resource *wl_surface) {
-    xdg_shell_t *shell = reinterpret_cast<xdg_shell_t *>(wl_resource_get_user_data(xdg_wm_base));
-
-    // Check whether client created a surface on our wl_compositor yet.
-    if (!wl_surface) {
-      wl_client_post_no_memory(client);
-      return;
-    }
-
-    shared_t<resource_t<surface_t>> surface = from_wl_resource<surface_t>(wl_surface);
-
-    auto xdg_surface =
-      make_resource<xdg_surface_t>(client, xdg_surface_interface, xdg_surface_impl,
-                                   wl_resource_get_version(xdg_wm_base), id, *shell, surface);
-    surface->role = xdg_surface;
-
-    // Insert at position 0, first rendered
-    shell->windows.insert(shell->windows.begin(), xdg_surface);
-
-    // Send the configure event
-    xdg_surface_send_configure(xdg_surface->resource(),
-                               wl_display_next_serial(shell->compositor.display()));
   }
 
   void
@@ -93,7 +67,9 @@ namespace barock {
   void
   xdg_shell_t::activate(const shared_t<xdg_surface_t> &xdg_surface) {
 
-    // First move the xdg_surface in `windows` from position X to 0
+    // First move the xdg_surface in `windows` from position X to the
+    // last one (we draw the top-most surface last, also makes it
+    // easier to loop over them in a consistent manner.)
 
     auto begin = xdg_surface->shell.windows.begin();
     auto end   = xdg_surface->shell.windows.end();
@@ -101,7 +77,6 @@ namespace barock {
     if (it != end) {
       xdg_surface->shell.windows.erase(it);
       xdg_surface->shell.windows.insert(xdg_surface->shell.windows.begin(), xdg_surface);
-      INFO("Activated a surface is, it is not the top-most one.");
     } else {
       // TODO: This is just for debugging, but i think the assert here
       // is bad, as the compositor, we should just not move the
@@ -128,4 +103,38 @@ namespace barock {
       }
     }
   }
-};
+}
+
+void
+xdg_wm_base_destroy(wl_client *client, wl_resource *res) {
+  wl_resource_destroy(res);
+}
+
+void
+xdg_wm_base_get_xdg_surface(wl_client   *client,
+                            wl_resource *xdg_wm_base,
+                            uint32_t     id,
+                            wl_resource *wl_surface) {
+  xdg_shell_t *shell = reinterpret_cast<xdg_shell_t *>(wl_resource_get_user_data(xdg_wm_base));
+
+  // Check whether client created a surface on our wl_compositor yet.
+  if (!wl_surface) {
+    wl_client_post_no_memory(client);
+    return;
+  }
+
+  shared_t<resource_t<surface_t>> surface = from_wl_resource<surface_t>(wl_surface);
+
+  auto xdg_surface =
+    make_resource<xdg_surface_t>(client, xdg_surface_interface, xdg_surface_impl,
+                                 wl_resource_get_version(xdg_wm_base), id, *shell, surface);
+  surface->role = xdg_surface;
+
+  // Insert at the beginning, this will be the last rendered surface
+  // (thus the top-most one.)
+  shell->windows.insert(shell->windows.begin(), xdg_surface);
+
+  // Send the configure event
+  xdg_surface_send_configure(xdg_surface->resource(),
+                             wl_display_next_serial(shell->compositor.display()));
+}

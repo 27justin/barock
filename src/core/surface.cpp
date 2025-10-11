@@ -1,4 +1,5 @@
 #include "barock/compositor.hpp"
+#include "barock/resource.hpp"
 
 #include "barock/core/shm_pool.hpp"
 #include "barock/core/surface.hpp"
@@ -20,8 +21,8 @@ namespace barock {
   surface_t::surface_t()
     : compositor(nullptr)
     , frame_callback(nullptr)
-    , state({})
-    , staging({}) {
+    , state({ .subsurface = { .parent = weak_t<surface_t>{} } })
+    , staging({ .subsurface = { .parent = weak_t<surface_t>{} } }) {
 
     // The initial value for an input region is infinite. That means
     // the whole surface will accept input.
@@ -31,8 +32,8 @@ namespace barock {
   surface_t::surface_t(surface_t &&other)
     : compositor(std::exchange(other.compositor, nullptr))
     , frame_callback(std::exchange(other.frame_callback, nullptr))
-    , state(std::exchange(other.state, {}))
-    , staging(std::exchange(other.staging, {}))
+    , state(std::exchange(other.state, { .subsurface = { .parent = weak_t<surface_t>{} } }))
+    , staging(std::exchange(other.staging, { .subsurface = { .parent = weak_t<surface_t>{} } }))
     , role(std::exchange(other.role, nullptr)) {}
 
   void
@@ -83,6 +84,52 @@ namespace barock {
     }
   }
 
+  region_t
+  surface_t::position(position_type_t relative_to) const {
+    if (relative_to == eLocal) {
+      int32_t x, y, w, h;
+      extent(x, y, w, h);
+      return region_t{ x, y, w, h };
+    } else {
+      int32_t local_x, local_y, local_h, local_w;
+      extent(local_x, local_y, local_w, local_h);
+
+      // Walk upwards until we find the "root" surface without a
+      // parent.
+      if (state.subsurface.parent == nullptr) {
+        return region_t{ local_x, local_y, local_w, local_h };
+      }
+
+      if (auto parent = state.subsurface.parent.lock()) {
+        auto region = parent->position(eGlobal);
+        local_x += region.x;
+        local_y += region.y;
+      }
+      return region_t{ local_x, local_y, local_w, local_h };
+    }
+    assert(false && "Unhandled condition in surface_t::position");
+  }
+
+  shared_t<surface_t>
+  surface_t::lookup_at(double xpos, double ypos) {
+    for (auto &surf : state.subsurface.children) {
+      int32_t x, y, w, h;
+      if (auto surface = surf->surface.lock()) {
+        surface->extent(x, y, w, h);
+
+        if (xpos >= x && xpos < x + w && ypos >= y && ypos < y + h) {
+          // Match
+          if (auto query = surface->lookup_at(xpos - x, ypos - y)) {
+            return query;
+          } else {
+            return surface;
+          }
+        }
+      }
+    }
+    return nullptr;
+  }
+
   bool
   surface_t::has_role() const {
     return role.get() != nullptr;
@@ -126,8 +173,9 @@ wl_surface_commit(wl_client *client, wl_resource *wl_surface) {
     surface->on_buffer_attach.emit(*surface->state.buffer);
   }
 
-  surface->staging = barock::surface_state_t{ // Copy our subsurfaces, those are persistent
-                                              .subsurfaces = surface->state.subsurfaces
+  surface->staging = barock::surface_state_t{
+    // Copy our subsurfaces, those are persistent
+    .subsurface = surface->state.subsurface,
   };
 }
 

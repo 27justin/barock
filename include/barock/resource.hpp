@@ -336,7 +336,8 @@ namespace barock {
      *
      * Needed for constructing weak references.
      */
-    friend class weak_t<_Ty>;
+    template<typename>
+    friend class weak_t;
 
     template<typename>
     friend class shared_t;
@@ -548,6 +549,25 @@ namespace barock {
     lock() {
       if (control && control->strong.load() > 0) {
         return shared_t<_Ty>(control, alias);
+      } else {
+        return nullptr;
+      }
+    }
+
+    /**
+     * @brief Attempts to promote this weak_t to a shared_t.
+     *
+     * If the managed object still exists (i.e. strong count > 0), returns a new shared_t.
+     * Otherwise, returns a null shared_t.
+     *
+     * @return A const shared_t instance or a null shared_t if expired.
+     */
+    shared_t<const _Ty>
+    lock() const {
+      if (control && control->strong.load() > 0) {
+        return shared_t<const _Ty>(
+          reinterpret_cast<typename shared_t<const _Ty>::control_t *>(control),
+          const_cast<_Ty *>(alias));
       } else {
         return nullptr;
       }

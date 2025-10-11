@@ -45,6 +45,11 @@ namespace barock {
     return x == other.x && y == other.y && w == other.w && h == other.h;
   }
 
+  bool
+  region_t::intersects(int32_t x, int32_t y) const {
+    return x >= this->x && x < this->x + this->w && y >= this->y && y < this->y + this->h;
+  }
+
   region_t region_t::infinite = { 0, 0, -1, -1 };
 }
 

@@ -285,8 +285,12 @@ draw_surface(barock::compositor_t                                    &compositor
   }
 
 render_subsurfaces:
-  for (auto &subsurface : surface->state.subsurfaces) {
-    auto surf = subsurface->surface.lock();
+  // Similar to the normal drawing loop, to have proper z-indices, we
+  // render from back to front (0 being top-most surface)
+  for (auto it = surface->state.subsurface.children.rbegin();
+       it != surface->state.subsurface.children.rend(); ++it) {
+    auto &subsurface = *it;
+    auto  surf       = subsurface->surface.lock();
     draw_surface(compositor, program, surf, screen, subsurface->x + x, subsurface->y + y);
   }
 }
@@ -306,7 +310,12 @@ draw(barock::compositor_t                                      &compositor,
     glClearColor(0.08f, 0.08f, 0.10f, 1.f);
     glClear(GL_COLOR_BUFFER_BIT);
 
-    // Iterate all surfaces...
+    // NOTE: The z-index of the xdg_surfaces
+    // is implicitly designated by array index, 0 is the top-most, and
+    // N the bottom-most.
+    //
+    // Therefore to render properly, we have to iterate from the back,
+    // such that index 0 is the last draw call (on top of all others.)
     for (auto it = compositor.xdg_shell->windows.rbegin();
          it != compositor.xdg_shell->windows.rend(); ++it) {
       auto xdg_surface = *it;
@@ -416,40 +425,33 @@ main() {
       cursor.x = std::max(cursor.x, 0.);
     }
 
-    // Send mouse motion event to active window (or focus a new window with our pointer)
-    int32_t x, y, w, h;
+    // First figure out whether a surface currently has mouse focus.
     if (auto surface = compositor.pointer.focus.lock(); surface) {
-      // Surface is still alive
-      surface->extent(x, y, w, h);
-      bool in_bounds = (cursor.x >= x && cursor.x < x + w && cursor.y >= y && cursor.y < y + h);
+      // Get the global position
+      auto position = surface->position(barock::surface_t::eGlobal);
 
       // Check if we are still within the surface bounds.
-      if (!in_bounds) {
+      if (!position.intersects(cursor.x, cursor.y)) {
+        // If not, send the leave event (done by set_focus(nullptr))
+        // and try to find a new surface that is behind our cursor.
         compositor.pointer.set_focus(nullptr);
         TRACE("Pointer left previous focused surface, searching for new one.");
         goto focus_new_surface;
       }
 
-      // Figure out whether or not we are hovering over a subsurface.
-      // TODO: Move this into a proper recursive function
-      for (auto &sub : surface->state.subsurfaces) {
-        int local_x{}, local_y{}, local_w{}, local_h{};
-        barock::shared_t<barock::resource_t<barock::surface_t>> subsurface = sub->surface.lock();
-        if (!subsurface)
-          continue;
+      // We are still within the same surface, now compute the surface
+      // local coordinates.
+      auto local_x = cursor.x - position.x;
+      auto local_y = cursor.y - position.y;
 
-        subsurface->extent(local_x, local_y, local_w, local_h);
-
-        local_x += x;
-        local_y += y;
-
-        bool in_subsurface_bounds = (cursor.x >= local_x && cursor.x < local_x + local_w &&
-                                     cursor.y >= local_y && cursor.y < local_y + local_h);
-        if (in_subsurface_bounds) {
-          compositor.pointer.set_focus(subsurface);
-          surface = subsurface;
-          break;
-        }
+      // With the local coordinates, recursively descent the surface
+      // subsurfaces, if any of them match the cursors local
+      // coordinates, focus that one instead and send the events
+      // there.
+      if (auto inner_surface = surface->lookup_at(local_x, local_y)) {
+        auto subsurface = shared_cast<barock::resource_t<barock::surface_t>>(inner_surface);
+        compositor.pointer.set_focus(subsurface);
+        surface = subsurface;
       }
 
       compositor.pointer.send_motion(surface);
@@ -457,16 +459,28 @@ main() {
     }
 
   focus_new_surface:
+    // No surface currently has mouse focus, check all xdg surfaces.
     for (auto &xdg_surface : compositor.xdg_shell->windows) {
       // Compute the position of the surface
-      if (auto surface = xdg_surface->surface.lock()) {
-        surface->extent(x, y, w, h);
+      if (auto candidate = xdg_surface->surface.lock()) {
+        auto position = candidate->position(barock::surface_t::eGlobal);
 
-        if (cursor.x >= x && cursor.x < x + w && cursor.y >= y && cursor.y < y + h) {
-          // Found a new surface, we'll focus it with the pointer
-          // (keyboard focus is done by `on_mouse_button`, when the user
-          // left-clicks a window.)
-          compositor.pointer.set_focus(surface);
+        // Check whether our cursor point intersects the surface.
+        // TODO: Doesn't respect cursor hotspot yet!
+        if (position.intersects(cursor.x, cursor.y)) {
+          auto local_x = cursor.x - position.x;
+          auto local_y = cursor.y - position.y;
+
+          // Since we match the top window, we can now recursively
+          // descent into the subsurfaces.  Should we find one that
+          // matches our local coordinates, use that; otherwise focus
+          // `candidate` itself.
+          if (auto subsurface = candidate->lookup_at(local_x, local_y)) {
+            compositor.pointer.set_focus(
+              shared_cast<barock::resource_t<barock::surface_t>>(subsurface));
+          } else {
+            compositor.pointer.set_focus(candidate);
+          }
           break;
         }
       }

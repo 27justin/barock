@@ -113,7 +113,11 @@ wl_subcompositor_get_subsurface(wl_client   *client,
   // sub-surface becomes visible on the next time the state of the
   // parent surface is applied.
 
-  parent_surface->staging.subsurfaces.emplace_back(wl_subsurface);
+  parent_surface->staging.subsurface.children.emplace_back(wl_subsurface);
+
+  // We immediately add the parent to the state of our child_surface.
+  child_surface->state.subsurface.parent = child_surface->staging.subsurface.parent =
+    parent_surface;
 
   // Remove subsurface from wl_compositor
   auto it = std::find(compositor->surfaces.begin(), compositor->surfaces.end(), child_surface);
@@ -141,21 +145,21 @@ wl_subsurface_destroy(wl_client *, wl_resource *wl_subsurface) {
   // to remove the subsurface from both buffers, this sucks.
 
   { // Active
-    auto begin = parent->state.subsurfaces.begin();
-    auto end   = parent->state.subsurfaces.begin();
+    auto begin = parent->state.subsurface.children.begin();
+    auto end   = parent->state.subsurface.children.begin();
 
     auto it = std::find(begin, end, subsurface);
     if (it != end) {
-      parent->state.subsurfaces.erase(it);
+      parent->state.subsurface.children.erase(it);
     }
   }
   { // Inactive (staging)
-    auto begin = parent->staging.subsurfaces.begin();
-    auto end   = parent->staging.subsurfaces.begin();
+    auto begin = parent->staging.subsurface.children.begin();
+    auto end   = parent->staging.subsurface.children.begin();
 
     auto it = std::find(begin, end, subsurface);
     if (it != end) {
-      parent->staging.subsurfaces.erase(it);
+      parent->staging.subsurface.children.erase(it);
     }
   }
 
