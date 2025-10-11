@@ -307,18 +307,12 @@ draw(barock::compositor_t                                      &compositor,
     glClear(GL_COLOR_BUFFER_BIT);
 
     // Iterate all surfaces...
-    std::lock_guard<std::mutex> lock(compositor.wl_compositor->surfaces_mutex);
-    for (auto surface : compositor.wl_compositor->surfaces) {
-      if (!surface)
-        continue;
-
-      if (!surface->role)
-        continue;
-
-      if (surface->role->type_id() != barock::xdg_surface_t::id())
-        continue;
-
-      draw_surface(compositor, quad_program, surface, *screen, 0, 0);
+    for (auto it = compositor.xdg_shell->windows.rbegin();
+         it != compositor.xdg_shell->windows.rend(); ++it) {
+      auto xdg_surface = *it;
+      if (auto surface = xdg_surface->surface.lock()) {
+        draw_surface(compositor, quad_program, surface, *screen, 0, 0);
+      }
     }
 
     // Draw cursor
@@ -463,16 +457,18 @@ main() {
     }
 
   focus_new_surface:
-    for (auto &surf : compositor.wl_compositor->surfaces) {
+    for (auto &xdg_surface : compositor.xdg_shell->windows) {
       // Compute the position of the surface
-      surf->extent(x, y, w, h);
+      if (auto surface = xdg_surface->surface.lock()) {
+        surface->extent(x, y, w, h);
 
-      if (cursor.x >= x && cursor.x < x + w && cursor.y >= y && cursor.y < y + h) {
-        // Found a new surface, we'll focus it with the pointer
-        // (keyboard focus is done by `on_mouse_button`, when the user
-        // left-clicks a window.)
-        compositor.pointer.set_focus(surf);
-        break;
+        if (cursor.x >= x && cursor.x < x + w && cursor.y >= y && cursor.y < y + h) {
+          // Found a new surface, we'll focus it with the pointer
+          // (keyboard focus is done by `on_mouse_button`, when the user
+          // left-clicks a window.)
+          compositor.pointer.set_focus(surface);
+          break;
+        }
       }
     }
   });
@@ -493,6 +489,9 @@ main() {
             // Then activate the new window
             compositor.window.activate(surface);
           }
+        } else {
+          // We have no active window, immediately activate
+          compositor.window.activate(surface);
         }
 
         if (compositor.keyboard.focus != surface) {

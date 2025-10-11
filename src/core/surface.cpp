@@ -78,7 +78,7 @@ namespace barock {
         width     = shm->width;
         height    = shm->height;
       } else {
-        WARN("Surface does not have a buffer attached, no valid size!");
+        // WARN("Surface does not have a buffer attached, no valid size!");
       }
     }
   }

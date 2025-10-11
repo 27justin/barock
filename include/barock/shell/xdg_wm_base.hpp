@@ -56,6 +56,13 @@ namespace barock {
     xdg_shell_t(compositor_t &);
     ~xdg_shell_t();
 
+    /**
+     * @brief List of all top-level windows, this vector is rendered
+     * sequentially, thus position 0 it the top most window, and
+     * position N the bottom-most.
+     */
+    std::vector<shared_t<xdg_surface_t>> windows;
+
     static void
     handle_xdg_base_destroy(wl_client *, wl_resource *);
     static void

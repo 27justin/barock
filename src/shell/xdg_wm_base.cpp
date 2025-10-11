@@ -63,6 +63,9 @@ namespace barock {
                                    wl_resource_get_version(xdg_wm_base), id, *shell, surface);
     surface->role = xdg_surface;
 
+    // Insert at position 0, first rendered
+    shell->windows.insert(shell->windows.begin(), xdg_surface);
+
     // Send the configure event
     xdg_surface_send_configure(xdg_surface->resource(),
                                wl_display_next_serial(shell->compositor.display()));
@@ -89,6 +92,24 @@ namespace barock {
 
   void
   xdg_shell_t::activate(const shared_t<xdg_surface_t> &xdg_surface) {
+
+    // First move the xdg_surface in `windows` from position X to 0
+
+    auto begin = xdg_surface->shell.windows.begin();
+    auto end   = xdg_surface->shell.windows.end();
+    auto it    = std::find(begin, end, xdg_surface);
+    if (it != end) {
+      xdg_surface->shell.windows.erase(it);
+      xdg_surface->shell.windows.insert(xdg_surface->shell.windows.begin(), xdg_surface);
+      INFO("Activated a surface is, it is not the top-most one.");
+    } else {
+      // TODO: This is just for debugging, but i think the assert here
+      // is bad, as the compositor, we should just not move the
+      // xdg_surface, if it's not part of the windows list.
+      assert(false && "Activated a window that is not a top-level xdg surface.");
+    }
+
+    // Then send the configure event
     switch (xdg_surface->role) {
       case xdg_role_t::eToplevel: {
         auto     toplevel = shared_cast<resource_t<xdg_toplevel_t>>(xdg_surface->role_impl);
