@@ -39,18 +39,9 @@ namespace barock {
     auto *compositor =
       static_cast<wl_compositor_t *>(wl_resource_get_user_data(compositor_base_res));
 
-    wl_resource *surface_res = wl_resource_create(client, &wl_surface_interface,
-                                                  wl_resource_get_version(compositor_base_res), id);
-
-    if (!surface_res) {
-      wl_client_post_no_memory(client);
-      return;
-    }
-
     auto res = make_resource<surface_t>(client, wl_surface_interface, wl_surface_impl,
                                         wl_resource_get_version(compositor_base_res), id);
     res->on_destroy.connect([compositor](auto wl_surface) {
-      INFO("wl_surface#destroy");
       auto surface = from_wl_resource<surface_t>(wl_surface);
 
       std::lock_guard<std::mutex> lock(compositor->surfaces_mutex);
@@ -58,13 +49,8 @@ namespace barock {
       auto it = std::find(compositor->surfaces.begin(), compositor->surfaces.end(), surface);
       if (it != compositor->surfaces.end()) {
         compositor->surfaces.erase(it);
-        WARN("Erased wl_surface from compositor.");
-      } else {
-        WARN("wl_surface#destroy was called, but the surface is not tracked by the compositor?");
       }
     });
-
-    res->on_destruct.connect([](auto &) { ERROR("wl_surface is now fully OOM!"); });
 
     res->compositor = &compositor->compositor;
     res->role       = nullptr;
