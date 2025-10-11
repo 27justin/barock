@@ -581,6 +581,7 @@ namespace barock {
       wl_resource, &implementation, resource, [](struct wl_resource *res) {
         auto shared = static_cast<shared_t<resource_t<_Ty>> *>(wl_resource_get_user_data(res));
         (*shared)->on_destroy.emit(res);
+        (*shared)->set_resource(nullptr);
         delete shared;
       });
 
@@ -603,6 +604,7 @@ namespace barock {
       wl_resource, &implementation, resource, [](struct wl_resource *res) {
         auto shared = static_cast<shared_t<resource_t<_Ty>> *>(wl_resource_get_user_data(res));
         (*shared)->on_destroy.emit(res);
+        (*shared)->set_resource(nullptr);
         delete shared;
       });
 

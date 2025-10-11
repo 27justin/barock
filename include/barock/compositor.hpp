@@ -58,6 +58,7 @@ namespace barock {
     } cursor;
 
     struct _pointer {
+      public:
       compositor_t                 *root;
       weak_t<resource_t<surface_t>> focus{};
 

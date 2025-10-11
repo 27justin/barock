@@ -38,9 +38,15 @@ namespace barock {
         surface->frame_callback = nullptr;
       }
 
-      if (surface->state.buffer) {
+      if (surface->state.buffer &&
+          /* TODO: I am unsure why we need this check, when running
+           * `foot`, we encounter a weird issue, where the client
+           * destroys a wl_buffer, that is still attached.  I feel
+           * like this is an issue in our code, but I'll have to delve
+           * a bit deeper to understand why it happens. So for now,
+           * we'll keep this check in place. */
+          surface->state.buffer->resource() != nullptr) {
         wl_buffer_send_release(surface->state.buffer->resource());
-        // surface->state.buffer = nullptr; // optional if reused
       }
 
       compositor->frame_updates.pop();
@@ -100,6 +106,17 @@ namespace barock {
     surf->extent(x, y, w, h);
 
     double local_x{}, local_y{};
+
+    // When the client is a xdg_surface, we have to subtract the
+    // offset of our client side decoration.
+    if (surf->role && surf->role->type_id() == barock::xdg_surface_t::id()) {
+      auto xdg_surface = shared_cast<barock::xdg_surface_t>(surf->role);
+      if (xdg_surface) {
+        x -= xdg_surface->x;
+        y -= xdg_surface->y;
+      }
+    }
+
     local_x = root->cursor.x - x;
     local_y = root->cursor.y - y;
 
@@ -111,6 +128,7 @@ namespace barock {
         wl_pointer_send_enter(pointer->resource(), wl_display_next_serial(root->display()),
                               surf->resource(), wl_fixed_from_double(local_x),
                               wl_fixed_from_double(local_y));
+        wl_pointer_send_frame(pointer->resource());
       }
     }
   }
@@ -124,6 +142,7 @@ namespace barock {
       if (auto pointer = seat->pointer.lock(); pointer) {
         wl_pointer_send_leave(pointer->resource(), wl_display_next_serial(root->display()),
                               surf->resource());
+        wl_pointer_send_frame(pointer->resource());
       }
     }
   }
@@ -139,6 +158,7 @@ namespace barock {
       if (auto pointer = seat->pointer.lock(); pointer) {
         wl_pointer_send_button(pointer->resource(), wl_display_next_serial(root->display()),
                                current_time_msec(), button, state);
+        wl_pointer_send_frame(pointer->resource());
       }
     }
   }
@@ -153,6 +173,8 @@ namespace barock {
         int32_t x, y, w, h;
         surface->extent(x, y, w, h);
 
+        // When the client is a xdg_surface, we have to subtract the
+        // offset of our client side decoration.
         if (surface->role && surface->role->type_id() == barock::xdg_surface_t::id()) {
           auto xdg_surface = shared_cast<barock::xdg_surface_t>(surface->role);
           if (xdg_surface) {
@@ -167,6 +189,7 @@ namespace barock {
 
         wl_pointer_send_motion(pointer->resource(), current_time_msec(),
                                wl_fixed_from_double(local_x), wl_fixed_from_double(local_y));
+        wl_pointer_send_frame(pointer->resource());
       }
     }
   }

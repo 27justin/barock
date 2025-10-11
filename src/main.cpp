@@ -384,7 +384,7 @@ main() {
 
     if (scancode == KEY_ENTER && key_state == LIBINPUT_KEY_STATE_RELEASED) {
       WARN("Starting terminal");
-      run_command("weston-terminal");
+      run_command("foot");
     }
   });
 
@@ -435,6 +435,29 @@ main() {
         TRACE("Pointer left previous focused surface, searching for new one.");
         goto focus_new_surface;
       }
+
+      // Figure out whether or not we are hovering over a subsurface.
+      // TODO: Move this into a proper recursive function
+      for (auto &sub : surface->state.subsurfaces) {
+        int local_x{}, local_y{}, local_w{}, local_h{};
+        barock::shared_t<barock::resource_t<barock::surface_t>> subsurface = sub->surface.lock();
+        if (!subsurface)
+          continue;
+
+        subsurface->extent(local_x, local_y, local_w, local_h);
+
+        local_x += x;
+        local_y += y;
+
+        bool in_subsurface_bounds = (cursor.x >= local_x && cursor.x < local_x + local_w &&
+                                     cursor.y >= local_y && cursor.y < local_y + local_h);
+        if (in_subsurface_bounds) {
+          compositor.pointer.set_focus(subsurface);
+          surface = subsurface;
+          break;
+        }
+      }
+
       compositor.pointer.send_motion(surface);
       return;
     }
@@ -462,13 +485,15 @@ main() {
       compositor.pointer.send_button(surface, btn.button, btn.state);
 
       if (btn.button == BTN_LEFT) {
-        // First deactivate whatever is currently activated.
-        if (auto surface = compositor.window.activated.lock()) {
-          compositor.window.deactivate(surface);
-        }
+        if (auto active_surface = compositor.window.activated.lock()) {
+          if (active_surface != surface) {
+            // First deactivate whatever is currently activated.
+            compositor.window.deactivate(active_surface);
 
-        // Then activate the new window
-        compositor.window.activate(surface);
+            // Then activate the new window
+            compositor.window.activate(surface);
+          }
+        }
 
         if (compositor.keyboard.focus != surface) {
           compositor.keyboard.set_focus(surface);
