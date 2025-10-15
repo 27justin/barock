@@ -82,27 +82,17 @@ namespace barock {
   }
 
   shared_t<surface_t>
-  surface_t::lookup_at(double local_x, double local_y) {
+  surface_t::lookup_at(double x, double y) {
     for (auto it = state.children.rbegin(); it != state.children.rend(); ++it) {
       if (auto subsurface = (*it)->surface.lock()) {
         // First compute the hit test point relative to the subsurface
-        double child_x = local_x;
-        double child_y = local_y;
-
         auto position = subsurface->position();
         auto extent   = subsurface->extent();
         position.w    = extent.w;
         position.h    = extent.h;
 
-        WARN("Subsurface\n  x = {}, y = {}\n  w = {}, h = {} (passes: {})",
-             position.x,
-             position.y,
-             position.w,
-             position.h,
-             position.intersects(child_x, child_y));
-
-        if (position.intersects(child_x, child_y)) {
-          if (auto deeper = subsurface->lookup_at(child_x, child_y))
+        if (position.intersects(x, y)) {
+          if (auto deeper = subsurface->lookup_at(x, y))
             return deeper;
           else
             return subsurface;

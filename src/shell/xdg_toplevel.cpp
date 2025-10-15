@@ -98,21 +98,37 @@ xdg_toplevel_resize(wl_client   *client,
                     uint32_t     serial,
                     uint32_t     edges);
 
+void
+xdg_toplevel_set_minimized(wl_client *client, wl_resource *wl_xdg_toplevel);
+
+void
+xdg_toplevel_set_maximized(wl_client *client, wl_resource *wl_xdg_toplevel);
+
+void
+xdg_toplevel_unset_maximized(wl_client *client, wl_resource *wl_xdg_toplevel);
+
+void
+xdg_toplevel_set_fullscreen(wl_client *client, wl_resource *wl_xdg_toplevel, wl_resource *output);
+
+void
+xdg_toplevel_unset_fullscreen(wl_client *client, wl_resource *wl_xdg_toplevel);
+
 struct xdg_toplevel_interface xdg_toplevel_impl = { .destroy    = xdg_toplevel_destroy,
                                                     .set_parent = nullptr,
                                                     .set_title  = xdg_toplevel_set_title,
                                                     .set_app_id = xdg_toplevel_set_app_id,
                                                     .show_window_menu =
                                                       xdg_toplevel_show_window_menu,
-                                                    .move             = xdg_toplevel_move,
-                                                    .resize           = xdg_toplevel_resize,
-                                                    .set_max_size     = xdg_toplevel_set_max_size,
-                                                    .set_min_size     = xdg_toplevel_set_min_size,
-                                                    .set_maximized    = nullptr,
-                                                    .unset_maximized  = nullptr,
-                                                    .set_fullscreen   = nullptr,
-                                                    .unset_fullscreen = nullptr,
-                                                    .set_minimized    = nullptr };
+                                                    .move            = xdg_toplevel_move,
+                                                    .resize          = xdg_toplevel_resize,
+                                                    .set_max_size    = xdg_toplevel_set_max_size,
+                                                    .set_min_size    = xdg_toplevel_set_min_size,
+                                                    .set_maximized   = xdg_toplevel_set_maximized,
+                                                    .unset_maximized = xdg_toplevel_unset_maximized,
+                                                    .set_fullscreen  = xdg_toplevel_set_fullscreen,
+                                                    .unset_fullscreen =
+                                                      xdg_toplevel_unset_fullscreen,
+                                                    .set_minimized = xdg_toplevel_set_minimized };
 
 void
 xdg_toplevel_move(wl_client   *client,
@@ -306,6 +322,31 @@ xdg_toplevel_show_window_menu(wl_client *,
                               int32_t      x,
                               int32_t      y) {
   WARN("xdg_toplevel#show_window_menu: We do not support this yet!");
+}
+
+void
+xdg_toplevel_set_minimized(wl_client *client, wl_resource *wl_xdg_toplevel) {
+  INFO("xdg_toplevel#set_minimized");
+}
+
+void
+xdg_toplevel_set_maximized(wl_client *client, wl_resource *wl_xdg_toplevel) {
+  INFO("xdg_toplevel#set_maximized");
+}
+
+void
+xdg_toplevel_unset_maximized(wl_client *client, wl_resource *wl_xdg_toplevel) {
+  INFO("xdg_toplevel#unset_maximized");
+}
+
+void
+xdg_toplevel_set_fullscreen(wl_client *client, wl_resource *wl_xdg_toplevel, wl_resource *output) {
+  INFO("xdg_toplevel#set_fullscreen");
+}
+
+void
+xdg_toplevel_unset_fullscreen(wl_client *client, wl_resource *wl_xdg_toplevel) {
+  INFO("xdg_toplevel#unset_fullscreen");
 }
 
 void

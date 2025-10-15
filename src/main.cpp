@@ -615,6 +615,8 @@ main() {
       if (!global_position.intersects(cursor.x, cursor.y)) {
         // If we do not intersect, go find a new surface that the
         // mouse is over.
+        // ERROR("Not intersecting anymore :/");
+        compositor.pointer.set_focus(nullptr);
         goto focus_new_surface;
       }
 
@@ -638,11 +640,9 @@ main() {
       // Compute the position of the surface
       if (auto candidate = xdg_surface->surface.lock()) {
         auto position = candidate->position();
-        position.x -= candidate->x;
-        position.y -= candidate->y;
-        auto size  = candidate->full_extent();
-        position.w = size.w;
-        position.h = size.h;
+        auto size     = candidate->full_extent();
+        position.w    = size.w;
+        position.h    = size.h;
 
         // Check whether our cursor point intersects the surface.
         // TODO: Doesn't respect cursor hotspot yet!
