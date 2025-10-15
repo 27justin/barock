@@ -13,6 +13,14 @@
 
 using namespace barock;
 
+void
+xdg_toplevel_show_window_menu(wl_client *,
+                              wl_resource *xdg_toplevel,
+                              wl_resource *wl_seat,
+                              uint32_t     serial,
+                              int32_t      x,
+                              int32_t      y);
+
 namespace barock {
   xdg_toplevel_t::xdg_toplevel_t(shared_t<resource_t<xdg_surface_t>> base,
                                  const xdg_toplevel_data_t          &prop_data)
@@ -21,8 +29,8 @@ namespace barock {
 
     // Attach on_buffer_attach listener to resize the window
     on_buffer_attach = base->surface.lock()->on_buffer_attach.connect(
-      [&data = this->data, surface = this->xdg_surface,
-       &on_buffer_attach = this->on_buffer_attach](const shm_buffer_t &buf) mutable {
+      [&data = this->data, surface = this->xdg_surface, &on_buffer_attach = this->on_buffer_attach](
+        const shm_buffer_t &buf) mutable {
         // TODO: We should only do this once, right now it auto resizes
         // to always match the buffer contents.
         data.width  = buf.width;
@@ -90,11 +98,12 @@ xdg_toplevel_resize(wl_client   *client,
                     uint32_t     serial,
                     uint32_t     edges);
 
-struct xdg_toplevel_interface xdg_toplevel_impl = { .destroy          = xdg_toplevel_destroy,
-                                                    .set_parent       = nullptr,
-                                                    .set_title        = xdg_toplevel_set_title,
-                                                    .set_app_id       = xdg_toplevel_set_app_id,
-                                                    .show_window_menu = nullptr,
+struct xdg_toplevel_interface xdg_toplevel_impl = { .destroy    = xdg_toplevel_destroy,
+                                                    .set_parent = nullptr,
+                                                    .set_title  = xdg_toplevel_set_title,
+                                                    .set_app_id = xdg_toplevel_set_app_id,
+                                                    .show_window_menu =
+                                                      xdg_toplevel_show_window_menu,
                                                     .move             = xdg_toplevel_move,
                                                     .resize           = xdg_toplevel_resize,
                                                     .set_max_size     = xdg_toplevel_set_max_size,
@@ -134,8 +143,8 @@ xdg_toplevel_move(wl_client   *client,
   auto subscriptions     = shared_t(new _data{});
   subscriptions->start_x = compositor->cursor.x;
   subscriptions->start_y = compositor->cursor.y;
-  subscriptions->win_x   = toplevel->data.x;
-  subscriptions->win_y   = toplevel->data.y;
+  subscriptions->win_x   = wl_surface->x;
+  subscriptions->win_y   = wl_surface->y;
 
   // If triggered, the surface will lose the focus of the device
   // (wl_pointer, wl_touch, etc) used for the move. It is up to
@@ -147,15 +156,15 @@ xdg_toplevel_move(wl_client   *client,
   compositor->keyboard.set_focus(nullptr);
 
   subscriptions->on_mouse_move = compositor->input->on_mouse_move.connect(
-    [toplevel, compositor, subscriptions](const auto &event) mutable {
+    [toplevel, compositor, subscriptions, wl_surface](const auto &event) mutable {
       // This is guaranteed to be processed after the compositor
       // itself used this event to set the cursor struct, therefore
       // we can just move according to the compositor cursor
       double dx = compositor->cursor.x - subscriptions->start_x;
       double dy = compositor->cursor.y - subscriptions->start_y;
 
-      toplevel->data.x = subscriptions->win_x + static_cast<int>(dx);
-      toplevel->data.y = subscriptions->win_y + static_cast<int>(dy);
+      wl_surface->x = subscriptions->win_x + static_cast<int>(dx);
+      wl_surface->y = subscriptions->win_y + static_cast<int>(dy);
     });
 
   subscriptions->on_mouse_button = compositor->input->on_mouse_button.connect(
@@ -204,8 +213,8 @@ xdg_toplevel_resize(wl_client   *client,
   auto subscriptions     = shared_t(new _data{});
   subscriptions->start_x = compositor->cursor.x;
   subscriptions->start_y = compositor->cursor.y;
-  subscriptions->win_x   = toplevel->data.x;
-  subscriptions->win_y   = toplevel->data.y;
+  subscriptions->win_x   = wl_surface->x;
+  subscriptions->win_y   = wl_surface->y;
   subscriptions->win_w   = toplevel->data.width;
   subscriptions->win_h   = toplevel->data.height;
   subscriptions->edges   = edges;
@@ -247,8 +256,8 @@ xdg_toplevel_resize(wl_client   *client,
       new_w = std::max(1, new_w);
       new_h = std::max(1, new_h);
 
-      toplevel->data.x      = new_x;
-      toplevel->data.y      = new_y;
+      wl_surface->x         = new_x;
+      wl_surface->y         = new_y;
       toplevel->data.width  = new_w;
       toplevel->data.height = new_h;
 
@@ -270,14 +279,14 @@ xdg_toplevel_resize(wl_client   *client,
         wl_array_init(&state);
         *reinterpret_cast<xdg_toplevel_state *>(wl_array_add(&state, sizeof(xdg_toplevel_state))) =
           XDG_TOPLEVEL_STATE_RESIZING;
-        xdg_toplevel_send_configure(toplevel->resource(), toplevel->data.width,
-                                    toplevel->data.height, &state);
+        xdg_toplevel_send_configure(
+          toplevel->resource(), toplevel->data.width, toplevel->data.height, &state);
         wl_array_release(&state);
 
         // Send final empty configure event.
         wl_array_init(&state);
-        xdg_toplevel_send_configure(toplevel->resource(), toplevel->data.width,
-                                    toplevel->data.height, &state);
+        xdg_toplevel_send_configure(
+          toplevel->resource(), toplevel->data.width, toplevel->data.height, &state);
         wl_array_release(&state);
 
         // Refocus the surface
@@ -287,6 +296,16 @@ xdg_toplevel_resize(wl_client   *client,
         compositor->input->on_mouse_button.disconnect(subscriptions->on_mouse_button);
       }
     });
+}
+
+void
+xdg_toplevel_show_window_menu(wl_client *,
+                              wl_resource *xdg_toplevel,
+                              wl_resource *wl_seat,
+                              uint32_t     serial,
+                              int32_t      x,
+                              int32_t      y) {
+  WARN("xdg_toplevel#show_window_menu: We do not support this yet!");
 }
 
 void

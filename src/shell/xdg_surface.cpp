@@ -34,23 +34,25 @@ get_toplevel(wl_client *client, wl_resource *xdg_surface, uint32_t id) {
   auto surface = from_wl_resource<xdg_surface_t>(xdg_surface);
 
   if (surface->role != xdg_role_t::eNone) {
-    wl_resource_post_error(surface->resource(), WL_SURFACE_ERROR_DEFUNCT_ROLE_OBJECT,
+    wl_resource_post_error(surface->resource(),
+                           WL_SURFACE_ERROR_DEFUNCT_ROLE_OBJECT,
                            "Surface role was already assigned.");
     return;
   }
 
-  auto toplevel =
-    make_resource<xdg_toplevel_t>(client, xdg_toplevel_interface, xdg_toplevel_impl,
-                                  wl_resource_get_version(surface->resource()), id, surface,
-                                  xdg_toplevel_data_t{
-                                    .title  = "",
-                                    .app_id = "",
-                                    .x      = 0,
-                                    .y      = 0,
-                                    .width  = -1, // Use what the
-                                                  // client prefers.
-                                    .height = -1,
-                                  });
+  auto toplevel = make_resource<xdg_toplevel_t>(client,
+                                                xdg_toplevel_interface,
+                                                xdg_toplevel_impl,
+                                                wl_resource_get_version(surface->resource()),
+                                                id,
+                                                surface,
+                                                xdg_toplevel_data_t{
+                                                  .title  = "",
+                                                  .app_id = "",
+                                                  .width  = -1, // Use what the
+                                                                // client prefers.
+                                                  .height = -1,
+                                                });
 
   surface->role_impl = toplevel;
   surface->role      = xdg_role_t::eToplevel;

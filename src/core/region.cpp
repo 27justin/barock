@@ -50,6 +50,16 @@ namespace barock {
     return x >= this->x && x < this->x + this->w && y >= this->y && y < this->y + this->h;
   }
 
+  region_t
+  region_t::union_with(const region_t &other) const {
+    int new_x1 = std::min(x, other.x);
+    int new_y1 = std::min(y, other.y);
+    int new_x2 = std::max(x + w, other.x + other.w);
+    int new_y2 = std::max(y + h, other.y + other.h);
+
+    return region_t{ new_x1, new_y1, new_x2 - new_x1, new_y2 - new_y1 };
+  }
+
   region_t region_t::infinite = { 0, 0, -1, -1 };
 }
 

@@ -72,6 +72,9 @@ namespace barock {
       send_motion(shared_t<resource_t<surface_t>> &);
 
       void
+      send_motion(shared_t<resource_t<surface_t>> &, double, double);
+
+      void
       send_leave(shared_t<resource_t<surface_t>> &);
 
       /// Set the focus to another surface, use nullptr to clear the focus

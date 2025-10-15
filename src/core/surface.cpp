@@ -21,8 +21,8 @@ namespace barock {
   surface_t::surface_t()
     : compositor(nullptr)
     , frame_callback(nullptr)
-    , state({ .subsurface = { .parent = weak_t<surface_t>{} } })
-    , staging({ .subsurface = { .parent = weak_t<surface_t>{} } }) {
+    , state({ .subsurface = nullptr })
+    , staging({ .subsurface = nullptr }) {
 
     // The initial value for an input region is infinite. That means
     // the whole surface will accept input.
@@ -32,100 +32,106 @@ namespace barock {
   surface_t::surface_t(surface_t &&other)
     : compositor(std::exchange(other.compositor, nullptr))
     , frame_callback(std::exchange(other.frame_callback, nullptr))
-    , state(std::exchange(other.state, { .subsurface = { .parent = weak_t<surface_t>{} } }))
-    , staging(std::exchange(other.staging, { .subsurface = { .parent = weak_t<surface_t>{} } }))
+    , state(std::exchange(other.state, { .subsurface = nullptr }))
+    , staging(std::exchange(other.staging, { .subsurface = nullptr }))
     , role(std::exchange(other.role, nullptr)) {}
 
-  void
-  surface_t::extent(int32_t &x, int32_t &y, int32_t &width, int32_t &height) const {
-    x      = 0;
-    y      = 0;
-    width  = 0;
-    height = 0;
-
-    if (role && role->type_id() == barock::xdg_surface_t::id()) {
-      auto &xdg_surface = *reinterpret_cast<const barock::xdg_surface_t *>(&*role);
-
-      switch (xdg_surface.role) {
-        case barock::xdg_role_t::eToplevel: {
-          auto role = xdg_surface.get_role<xdg_toplevel_t>();
-
-          // Get bounds of window's drawable content
-          x = role->data.x;
-          y = role->data.y;
-
-          width  = role->data.width;
-          height = role->data.height;
-
-          return;
-        }
-        case barock::xdg_role_t::ePopup: {
-          WARN("surface_t#extent not implemented for role xdg_popup.");
-          return;
-        }
-        default: {
-          ERROR("Unhandled XDG role: {}\nxdg surface: {}", (int)xdg_surface.role,
-                (void *)&xdg_surface);
-          assert(false && "unhandled xdg_role_t in surface_t#extent");
-        }
-      }
-    } else {
-
-      // Check for buffer
-      if (state.buffer) {
-        auto &shm = state.buffer;
-        x         = 0;
-        y         = 0;
-        width     = shm->width;
-        height    = shm->height;
-      } else {
-        // WARN("Surface does not have a buffer attached, no valid size!");
-      }
+  region_t
+  surface_t::extent() const {
+    region_t bounds{};
+    if (state.buffer) {
+      bounds.w = state.buffer->width;
+      bounds.h = state.buffer->height;
     }
+    return bounds;
   }
 
   region_t
-  surface_t::position(position_type_t relative_to) const {
-    if (relative_to == eLocal) {
-      int32_t x, y, w, h;
-      extent(x, y, w, h);
-      return region_t{ x, y, w, h };
-    } else {
-      int32_t local_x, local_y, local_h, local_w;
-      extent(local_x, local_y, local_w, local_h);
+  surface_t::full_extent() const {
+    region_t region = extent();
 
-      // Walk upwards until we find the "root" surface without a
-      // parent.
-      if (state.subsurface.parent == nullptr) {
-        return region_t{ local_x, local_y, local_w, local_h };
-      }
+    for (auto &child : state.children) {
+      if (auto subsurface = child->surface.lock()) {
+        region_t child_region = subsurface->full_extent();
+        child_region.x += subsurface->x;
+        child_region.y += subsurface->y;
 
-      if (auto parent = state.subsurface.parent.lock()) {
-        auto region = parent->position(eGlobal);
-        local_x += region.x;
-        local_y += region.y;
+        region = region.union_with(child_region); // merge bounding boxes
       }
-      return region_t{ local_x, local_y, local_w, local_h };
     }
-    assert(false && "Unhandled condition in surface_t::position");
+
+    return region;
+  }
+
+  region_t
+  surface_t::position() const {
+    region_t bounds = extent();
+    bounds.x        = 0;
+    bounds.y        = 0;
+
+    auto current = this;
+    while (current->parent.lock()) {
+      current = current->parent.lock().get();
+      bounds.x += current->x;
+      bounds.y += current->y;
+    }
+
+    bounds.x += x;
+    bounds.y += y;
+    return bounds;
   }
 
   shared_t<surface_t>
-  surface_t::lookup_at(double xpos, double ypos) {
-    for (auto &surf : state.subsurface.children) {
-      int32_t x, y, w, h;
-      if (auto surface = surf->surface.lock()) {
-        surface->extent(x, y, w, h);
+  surface_t::lookup_at(double local_x, double local_y) {
+    for (auto it = state.children.rbegin(); it != state.children.rend(); ++it) {
+      if (auto subsurface = (*it)->surface.lock()) {
+        // First compute the hit test point relative to the subsurface
+        double child_x = local_x;
+        double child_y = local_y;
 
-        if (xpos >= x && xpos < x + w && ypos >= y && ypos < y + h) {
-          // Match
-          if (auto query = surface->lookup_at(xpos - x, ypos - y)) {
-            return query;
-          } else {
-            return surface;
-          }
+        auto position = subsurface->position();
+        auto extent   = subsurface->extent();
+        position.w    = extent.w;
+        position.h    = extent.h;
+
+        WARN("Subsurface\n  x = {}, y = {}\n  w = {}, h = {} (passes: {})",
+             position.x,
+             position.y,
+             position.w,
+             position.h,
+             position.intersects(child_x, child_y));
+
+        if (position.intersects(child_x, child_y)) {
+          if (auto deeper = subsurface->lookup_at(child_x, child_y))
+            return deeper;
+          else
+            return subsurface;
         }
       }
+    }
+
+    // No child matched; return nullptr
+    return nullptr;
+  }
+
+  shared_t<surface_t>
+  surface_t::find_parent(const std::function<bool(shared_t<surface_t> &)> &condition) const {
+    // Do we even have a parent?
+    if (shared_t<surface_t> current_surface = parent.lock()) {
+      // We have; then ascend upwards and test until we match
+      // something, or until we have no parent anymore.
+      do {
+        if (!current_surface)
+          return nullptr;
+
+        if (condition(current_surface)) {
+          return current_surface;
+        }
+
+        // Exit when the surface doesn't have a parent.
+        if (!current_surface->state.subsurface)
+          return nullptr;
+      } while ((current_surface = current_surface->parent.lock()));
     }
     return nullptr;
   }
@@ -173,9 +179,9 @@ wl_surface_commit(wl_client *client, wl_resource *wl_surface) {
     surface->on_buffer_attach.emit(*surface->state.buffer);
   }
 
-  surface->staging = barock::surface_state_t{
-    // Copy our subsurfaces, those are persistent
-    .subsurface = surface->state.subsurface,
+  surface->staging = barock::surface_state_t{ // Copy our subsurfaces, those are persistent
+                                              .subsurface = surface->state.subsurface,
+                                              .children   = surface->state.children
   };
 }
 
@@ -187,7 +193,8 @@ wl_surface_destroy(wl_client *client, wl_resource *wl_surface) {
   auto surface = from_wl_resource<surface_t>(wl_surface);
 
   if (surface->role != nullptr) {
-    wl_resource_post_error(wl_surface, WL_SURFACE_ERROR_DEFUNCT_ROLE_OBJECT,
+    wl_resource_post_error(wl_surface,
+                           WL_SURFACE_ERROR_DEFUNCT_ROLE_OBJECT,
                            "Surface has active role assigned, destroy that first.");
     return;
   }
@@ -203,8 +210,8 @@ wl_surface_frame(wl_client *client, wl_resource *wl_surface, uint32_t callback) 
 
   auto weak = new weak_t<resource_t<surface_t>>(surface);
 
-  wl_resource *callback_res = wl_resource_create(client, &wl_callback_interface,
-                                                 wl_resource_get_version(wl_surface), callback);
+  wl_resource *callback_res = wl_resource_create(
+    client, &wl_callback_interface, wl_resource_get_version(wl_surface), callback);
 
   wl_resource_set_implementation(callback_res, nullptr, weak, [](wl_resource *res) {
     auto weak_surface = (weak_t<resource_t<surface_t>> *)wl_resource_get_user_data(res);

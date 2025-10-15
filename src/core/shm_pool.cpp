@@ -43,8 +43,8 @@ wl_shm_pool_create_buffer(wl_client   *client,
                           uint32_t     format) {
   auto pool = from_wl_resource<shm_pool_t>(wl_shm_pool);
 
-  auto buffer = make_resource<shm_buffer_t>(client, wl_buffer_interface, wl_buffer_impl,
-                                            wl_resource_get_version(wl_shm_pool), id);
+  auto buffer = make_resource<shm_buffer_t>(
+    client, wl_buffer_interface, wl_buffer_impl, wl_resource_get_version(wl_shm_pool), id);
 
   buffer->pool   = pool;
   buffer->offset = offset;
@@ -54,7 +54,6 @@ wl_shm_pool_create_buffer(wl_client   *client,
   buffer->format = format;
 
   buffer->on_destroy.connect([buffer](wl_resource *) mutable {
-    TRACE("wl_buffer#cleanup");
     auto it = std::find(buffer->pool->buffers.begin(), buffer->pool->buffers.end(), buffer);
     if (it != buffer->pool->buffers.end())
       buffer->pool->buffers.erase(it);

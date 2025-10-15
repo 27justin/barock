@@ -102,31 +102,22 @@ namespace barock {
     auto      &wl_seat = root->wl_seat;
     wl_client *client  = surf->owner();
 
-    int32_t x, y, w, h;
-    surf->extent(x, y, w, h);
+    region_t bounds = surf->extent();
 
     double local_x{}, local_y{};
 
-    // When the client is a xdg_surface, we have to subtract the
-    // offset of our client side decoration.
-    if (surf->role && surf->role->type_id() == barock::xdg_surface_t::id()) {
-      auto xdg_surface = shared_cast<barock::xdg_surface_t>(surf->role);
-      if (xdg_surface) {
-        x -= xdg_surface->x;
-        y -= xdg_surface->y;
-      }
-    }
-
-    local_x = root->cursor.x - x;
-    local_y = root->cursor.y - y;
+    local_x = root->cursor.x - bounds.x;
+    local_y = root->cursor.y - bounds.y;
 
     // Figure out whether the client has
     // A.) A `wl_seat` configured.
     // B.) A `wl_pointer` attached to that `wl_seat`.
     if (auto seat = wl_seat->find(client); seat) {
       if (auto pointer = seat->pointer.lock(); pointer) {
-        wl_pointer_send_enter(pointer->resource(), wl_display_next_serial(root->display()),
-                              surf->resource(), wl_fixed_from_double(local_x),
+        wl_pointer_send_enter(pointer->resource(),
+                              wl_display_next_serial(root->display()),
+                              surf->resource(),
+                              wl_fixed_from_double(local_x),
                               wl_fixed_from_double(local_y));
         wl_pointer_send_frame(pointer->resource());
       }
@@ -140,8 +131,8 @@ namespace barock {
 
     if (auto seat = wl_seat->find(client); seat) {
       if (auto pointer = seat->pointer.lock(); pointer) {
-        wl_pointer_send_leave(pointer->resource(), wl_display_next_serial(root->display()),
-                              surf->resource());
+        wl_pointer_send_leave(
+          pointer->resource(), wl_display_next_serial(root->display()), surf->resource());
         wl_pointer_send_frame(pointer->resource());
       }
     }
@@ -156,8 +147,11 @@ namespace barock {
 
     if (auto seat = wl_seat->find(client); seat) {
       if (auto pointer = seat->pointer.lock(); pointer) {
-        wl_pointer_send_button(pointer->resource(), wl_display_next_serial(root->display()),
-                               current_time_msec(), button, state);
+        wl_pointer_send_button(pointer->resource(),
+                               wl_display_next_serial(root->display()),
+                               current_time_msec(),
+                               button,
+                               state);
         wl_pointer_send_frame(pointer->resource());
       }
     }
@@ -170,25 +164,34 @@ namespace barock {
 
     if (auto seat = wl_seat->find(client); seat) {
       if (auto pointer = seat->pointer.lock(); pointer) {
-        int32_t x, y, w, h;
-        surface->extent(x, y, w, h);
-
-        // When the client is a xdg_surface, we have to subtract the
-        // offset of our client side decoration.
-        if (surface->role && surface->role->type_id() == barock::xdg_surface_t::id()) {
-          auto xdg_surface = shared_cast<barock::xdg_surface_t>(surface->role);
-          if (xdg_surface) {
-            x -= xdg_surface->x;
-            y -= xdg_surface->y;
-          }
-        }
+        auto position = surface->position();
 
         double local_x{}, local_y{};
-        local_x = (root->cursor.x - x);
-        local_y = (root->cursor.y - y);
+        local_x = (root->cursor.x - position.x);
+        local_y = (root->cursor.y - position.y);
 
-        wl_pointer_send_motion(pointer->resource(), current_time_msec(),
-                               wl_fixed_from_double(local_x), wl_fixed_from_double(local_y));
+        wl_pointer_send_motion(pointer->resource(),
+                               current_time_msec(),
+                               wl_fixed_from_double(local_x),
+                               wl_fixed_from_double(local_y));
+        wl_pointer_send_frame(pointer->resource());
+      }
+    }
+  }
+
+  void
+  compositor_t::_pointer::send_motion(shared_t<resource_t<surface_t>> &surface,
+                                      double                           x,
+                                      double                           y) {
+    auto      &wl_seat = root->wl_seat;
+    wl_client *client  = surface->owner();
+
+    if (auto seat = wl_seat->find(client); seat) {
+      if (auto pointer = seat->pointer.lock(); pointer) {
+        wl_pointer_send_motion(pointer->resource(),
+                               current_time_msec(),
+                               wl_fixed_from_double(x),
+                               wl_fixed_from_double(y));
         wl_pointer_send_frame(pointer->resource());
       }
     }
@@ -203,8 +206,8 @@ namespace barock {
 
       if (auto seat = wl_seat->find(client); seat) {
         if (auto pointer = seat->pointer.lock(); pointer) {
-          wl_pointer_send_leave(pointer->resource(), wl_display_next_serial(root->display()),
-                                surface->resource());
+          wl_pointer_send_leave(
+            pointer->resource(), wl_display_next_serial(root->display()), surface->resource());
         }
       }
     }
@@ -226,8 +229,8 @@ namespace barock {
       if (auto keyboard = seat->keyboard.lock(); keyboard) {
         wl_array keys;
         wl_array_init(&keys);
-        wl_keyboard_send_enter(keyboard->resource(), wl_display_next_serial(root->display()),
-                               surf->resource(), &keys);
+        wl_keyboard_send_enter(
+          keyboard->resource(), wl_display_next_serial(root->display()), surf->resource(), &keys);
         wl_array_release(&keys);
       }
     }
@@ -243,8 +246,8 @@ namespace barock {
     // B.) A `wl_keyboard` attached to that `wl_seat`.
     if (auto seat = wl_seat->find(client); seat) {
       if (auto keyboard = seat->keyboard.lock(); keyboard) {
-        wl_keyboard_send_leave(keyboard->resource(), wl_display_next_serial(root->display()),
-                               surf->resource());
+        wl_keyboard_send_leave(
+          keyboard->resource(), wl_display_next_serial(root->display()), surf->resource());
       }
     }
   }
@@ -259,8 +262,11 @@ namespace barock {
     if (auto seat = wl_seat->find(client); seat) {
       if (auto keyboard = seat->keyboard.lock(); keyboard) {
 
-        wl_keyboard_send_key(keyboard->resource(), wl_display_next_serial(root->display()),
-                             current_time_msec(), key, state);
+        wl_keyboard_send_key(keyboard->resource(),
+                             wl_display_next_serial(root->display()),
+                             current_time_msec(),
+                             key,
+                             state);
       }
     }
   }
@@ -277,8 +283,12 @@ namespace barock {
     if (auto seat = wl_seat->find(client); seat) {
       if (auto keyboard = seat->keyboard.lock(); keyboard) {
 
-        wl_keyboard_send_modifiers(keyboard->resource(), wl_display_next_serial(root->display()),
-                                   depressed, latched, locked, group);
+        wl_keyboard_send_modifiers(keyboard->resource(),
+                                   wl_display_next_serial(root->display()),
+                                   depressed,
+                                   latched,
+                                   locked,
+                                   group);
       }
     }
   }
@@ -291,8 +301,8 @@ namespace barock {
       wl_client *client  = surface->owner();
       if (auto seat = wl_seat->find(client); seat) {
         if (auto keyboard = seat->keyboard.lock(); keyboard) {
-          wl_keyboard_send_leave(keyboard->resource(), wl_display_next_serial(root->display()),
-                                 surface->resource());
+          wl_keyboard_send_leave(
+            keyboard->resource(), wl_display_next_serial(root->display()), surface->resource());
         }
       }
     }

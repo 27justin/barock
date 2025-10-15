@@ -11,9 +11,17 @@
 #include <iostream>
 #include <wayland-server-core.h>
 
+using namespace barock;
+
+void
+wl_compositor_create_surface(wl_client *, wl_resource *, uint32_t);
+
+void
+wl_compositor_create_region(wl_client *, wl_resource *, uint32_t);
+
 static const struct wl_compositor_interface wl_compositor_impl = {
-  .create_surface = &barock::wl_compositor_t::handle_create_surface,
-  .create_region  = &barock::wl_compositor_t::handle_create_region,
+  .create_surface = &wl_compositor_create_surface,
+  .create_region  = &wl_compositor_create_region,
 };
 
 namespace barock {
@@ -29,51 +37,24 @@ namespace barock {
     struct wl_resource *resource =
       wl_resource_create(client, &wl_compositor_interface, version, id);
 
-    wl_resource_set_implementation(resource, &wl_compositor_impl, ud, NULL);
+    wl_resource_set_implementation(
+      resource, &wl_compositor_impl, ud, [](wl_resource *res) { wl_resource_destroy(res); });
   }
+}; // namespace barock
 
-  void
-  wl_compositor_t::handle_create_surface(wl_client   *client,
-                                         wl_resource *compositor_base_res,
-                                         uint32_t     id) {
-    auto *compositor =
-      static_cast<wl_compositor_t *>(wl_resource_get_user_data(compositor_base_res));
+void
+wl_compositor_create_surface(wl_client *client, wl_resource *wl_compositor, uint32_t id) {
+  auto *compositor = static_cast<wl_compositor_t *>(wl_resource_get_user_data(wl_compositor));
 
-    auto res = make_resource<surface_t>(client, wl_surface_interface, wl_surface_impl,
-                                        wl_resource_get_version(compositor_base_res), id);
-    res->on_destroy.connect([compositor](auto wl_surface) {
-      auto surface = from_wl_resource<surface_t>(wl_surface);
+  auto surface = make_resource<surface_t>(
+    client, wl_surface_interface, wl_surface_impl, wl_resource_get_version(wl_compositor), id);
 
-      std::lock_guard<std::mutex> lock(compositor->surfaces_mutex);
+  surface->compositor = &compositor->compositor;
+  surface->role       = nullptr;
+}
 
-      auto it = std::find(compositor->surfaces.begin(), compositor->surfaces.end(), surface);
-      if (it != compositor->surfaces.end()) {
-        compositor->surfaces.erase(it);
-      }
-    });
-
-    res->compositor = &compositor->compositor;
-    res->role       = nullptr;
-
-    compositor->surfaces.push_back(res);
-  }
-
-  void
-  wl_compositor_t::handle_create_region(wl_client   *client,
-                                        wl_resource *wl_compositor,
-                                        uint32_t     id) {
-
-    auto wl_region =
-      wl_resource_create(client, &wl_region_interface, wl_resource_get_version(wl_compositor), id);
-    if (!wl_region) {
-      wl_client_post_no_memory(client);
-      return;
-    }
-
-    // Zero initialized
-    region_t *region = new region_t{};
-
-    wl_resource_set_implementation(wl_region, &wl_region_impl, region, nullptr);
-  }
-
-};
+void
+wl_compositor_create_region(wl_client *client, wl_resource *wl_compositor, uint32_t id) {
+  auto wl_region = make_resource<region_t>(
+    client, wl_region_interface, wl_region_impl, wl_resource_get_version(wl_compositor), id);
+}

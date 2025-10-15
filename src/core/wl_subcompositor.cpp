@@ -29,8 +29,10 @@ struct wl_subcompositor_interface wl_subcompositor_impl{
 void
 wl_subsurface_set_position(wl_client *client, wl_resource *wl_subsurface, int32_t x, int32_t y) {
   auto subsurface = from_wl_resource<subsurface_t>(wl_subsurface);
-  subsurface->x   = x;
-  subsurface->y   = y;
+  if (auto surface = subsurface->surface.lock()) {
+    surface->x = x;
+    surface->y = y;
+  }
 }
 
 void
@@ -104,26 +106,26 @@ wl_subcompositor_get_subsurface(wl_client   *client,
   //   return;
   // }
 
-  auto wl_subsurface = make_resource<subsurface_t>(
-    client, wl_subsurface_interface, wl_subsurface_impl, wl_resource_get_version(wl_subcompositor),
-    id, subsurface_t{ .parent = parent_surface, .surface = child_surface, .x = 0, .y = 0 });
+  auto wl_subsurface = make_resource<subsurface_t>(client,
+                                                   wl_subsurface_interface,
+                                                   wl_subsurface_impl,
+                                                   wl_resource_get_version(wl_subcompositor),
+                                                   id,
+                                                   subsurface_t{ .surface = child_surface });
 
   // Adding sub-surfaces to a parent is a double-buffered operation on
   // the parent (see wl_surface.commit). The effect of adding a
   // sub-surface becomes visible on the next time the state of the
   // parent surface is applied.
+  // TODO: Not implemented yet.
 
-  parent_surface->staging.subsurface.children.emplace_back(wl_subsurface);
+  parent_surface->state.children.push_back(wl_subsurface);
+  parent_surface->staging.children.push_back(wl_subsurface);
 
   // We immediately add the parent to the state of our child_surface.
-  child_surface->state.subsurface.parent = child_surface->staging.subsurface.parent =
-    parent_surface;
-
-  // Remove subsurface from wl_compositor
-  auto it = std::find(compositor->surfaces.begin(), compositor->surfaces.end(), child_surface);
-  if (it != compositor->surfaces.end()) {
-    compositor->surfaces.erase(it);
-  }
+  child_surface->state.subsurface   = wl_subsurface;
+  child_surface->staging.subsurface = wl_subsurface;
+  child_surface->parent             = parent_surface;
 
   // The parent surface must not be one of the child surface's
   // descendants, and the parent must be different from the child
@@ -139,27 +141,29 @@ void
 wl_subsurface_destroy(wl_client *, wl_resource *wl_subsurface) {
   auto subsurface = from_wl_resource<subsurface_t>(wl_subsurface);
 
-  auto parent = subsurface->parent.lock();
+  if (auto surface = subsurface->surface.lock()) {
+    auto parent = surface->parent.lock();
 
-  // TODO: We "double"-buffer the subsurfaces, therefore we also have
-  // to remove the subsurface from both buffers, this sucks.
+    // TODO: We "double"-buffer the subsurfaces, therefore we also have
+    // to remove the subsurface from both buffers, this sucks.
 
-  { // Active
-    auto begin = parent->state.subsurface.children.begin();
-    auto end   = parent->state.subsurface.children.begin();
+    { // Active
+      auto begin = parent->state.children.begin();
+      auto end   = parent->state.children.begin();
 
-    auto it = std::find(begin, end, subsurface);
-    if (it != end) {
-      parent->state.subsurface.children.erase(it);
+      auto it = std::find(begin, end, subsurface);
+      if (it != end) {
+        parent->state.children.erase(it);
+      }
     }
-  }
-  { // Inactive (staging)
-    auto begin = parent->staging.subsurface.children.begin();
-    auto end   = parent->staging.subsurface.children.begin();
+    { // Inactive (staging)
+      auto begin = parent->staging.children.begin();
+      auto end   = parent->staging.children.begin();
 
-    auto it = std::find(begin, end, subsurface);
-    if (it != end) {
-      parent->staging.subsurface.children.erase(it);
+      auto it = std::find(begin, end, subsurface);
+      if (it != end) {
+        parent->staging.children.erase(it);
+      }
     }
   }
 

@@ -46,6 +46,8 @@
     }                                                                                              \
   } while (0)
 
+GLint debug_program, quad_program;
+
 void
 check_opengl_error() {
   GLenum error = glGetError();
@@ -127,6 +129,32 @@ init_quad_program() {
   return create_program(vs, fs);
 }
 
+GLuint
+init_quad_program_color() {
+  static const char *vs = R"(
+        attribute vec2 a_position;
+        attribute vec2 a_texcoord;
+        varying vec2 v_texcoord;
+
+        void main() {
+            gl_Position = vec4(a_position, 0.0, 1.0);
+            v_texcoord = a_texcoord;
+        }
+    )";
+
+  static const char *fs = R"(
+        precision mediump float;
+        varying vec2 v_texcoord;
+        uniform vec3 u_color;
+
+        void main() {
+            gl_FragColor = vec4(u_color, 0.5);
+        }
+    )";
+
+  return create_program(vs, fs);
+}
+
 void
 draw_quad(GLuint program, GLuint texture) {
   GL_CHECK;
@@ -175,6 +203,53 @@ draw_quad(GLuint program, GLuint texture) {
   GL_CHECK;
 }
 
+void
+draw_quad(GLuint program, float color[3]) {
+  GL_CHECK;
+
+  glUseProgram(program);
+  GL_CHECK;
+
+  static const GLfloat vertices[] = {
+    // X     Y     U     V
+    -1.0f, -1.0f, 0.0f, 0.0f, // bottom-left
+    1.0f,  -1.0f, 1.0f, 0.0f, // bottom-right
+    -1.0f, 1.0f,  0.0f, 1.0f, // top-left
+    1.0f,  1.0f,  1.0f, 1.0f  // top-right
+  };
+
+  GLuint attr_pos = glGetAttribLocation(program, "a_position");
+  GL_CHECK;
+  GLuint attr_tex = glGetAttribLocation(program, "a_texcoord");
+  GL_CHECK;
+  GLuint u_color = glGetUniformLocation(program, "u_color");
+  GL_CHECK;
+
+  glActiveTexture(GL_TEXTURE0);
+  GL_CHECK;
+
+  glUniform3fv(u_color, 1, color);
+  GL_CHECK;
+
+  glEnableVertexAttribArray(attr_pos);
+  GL_CHECK;
+  glEnableVertexAttribArray(attr_tex);
+  GL_CHECK;
+
+  glVertexAttribPointer(attr_pos, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(GLfloat), &vertices[0]);
+  GL_CHECK;
+  glVertexAttribPointer(attr_tex, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(GLfloat), &vertices[2]);
+  GL_CHECK;
+
+  glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+  GL_CHECK;
+
+  glDisableVertexAttribArray(attr_pos);
+  GL_CHECK;
+  glDisableVertexAttribArray(attr_tex);
+  GL_CHECK;
+}
+
 GLuint
 upload_texture(barock::shm_buffer_t &buffer) {
   GLuint texture;
@@ -190,8 +265,15 @@ upload_texture(barock::shm_buffer_t &buffer) {
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
   GL_CHECK;
 
-  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, buffer.width, buffer.height, 0, GL_BGRA_EXT,
-               GL_UNSIGNED_BYTE, buffer.data());
+  glTexImage2D(GL_TEXTURE_2D,
+               0,
+               GL_RGBA,
+               buffer.width,
+               buffer.height,
+               0,
+               GL_BGRA_EXT,
+               GL_UNSIGNED_BYTE,
+               buffer.data());
   GL_CHECK;
 
   return texture;
@@ -243,10 +325,9 @@ draw_surface(barock::compositor_t                                    &compositor
   GLuint  texture = 0;
 
   // Check the role, we have to render different things accordingly
-  int32_t local_x{}, local_y;
-  surface->extent(local_x, local_y, width, height);
-  x += local_x;
-  y += local_y;
+  barock::region_t bounds = surface->extent();
+  x += bounds.x;
+  y += bounds.y;
 
   if (surface->state.buffer) {
     auto &shm = surface->state.buffer;
@@ -254,13 +335,13 @@ draw_surface(barock::compositor_t                                    &compositor
     height    = shm->height;
   }
 
-  if (surface->role && surface->role->type_id() == barock::xdg_surface_t::id()) {
-    auto xdg_surface = shared_cast<barock::xdg_surface_t>(surface->role);
-    if (xdg_surface) {
-      x -= xdg_surface->x;
-      y -= xdg_surface->y;
-    }
-  }
+  // if (surface->role && surface->role->type_id() == barock::xdg_surface_t::id()) {
+  //   auto xdg_surface = shared_cast<barock::xdg_surface_t>(surface->role);
+  //   if (xdg_surface) {
+  //     x -= xdg_surface->x;
+  //     y -= xdg_surface->y;
+  //   }
+  // }
 
   // Window is improperly configured, likely that the client hasn't
   // attached a buffer yet.
@@ -287,11 +368,14 @@ draw_surface(barock::compositor_t                                    &compositor
 render_subsurfaces:
   // Similar to the normal drawing loop, to have proper z-indices, we
   // render from back to front (0 being top-most surface)
-  for (auto it = surface->state.subsurface.children.rbegin();
-       it != surface->state.subsurface.children.rend(); ++it) {
+  for (auto it = surface->state.children.rbegin(); it != surface->state.children.rend(); ++it) {
     auto &subsurface = *it;
     auto  surf       = subsurface->surface.lock();
-    draw_surface(compositor, program, surf, screen, subsurface->x + x, subsurface->y + y);
+
+    int32_t child_x = x + surf->x;
+    int32_t child_y = y + surf->y;
+
+    draw_surface(compositor, program, surf, screen, child_x, child_y);
   }
 }
 
@@ -317,23 +401,46 @@ draw(barock::compositor_t                                      &compositor,
     // Therefore to render properly, we have to iterate from the back,
     // such that index 0 is the last draw call (on top of all others.)
     for (auto it = compositor.xdg_shell->windows.rbegin();
-         it != compositor.xdg_shell->windows.rend(); ++it) {
+         it != compositor.xdg_shell->windows.rend();
+         ++it) {
       auto xdg_surface = *it;
-      if (auto surface = xdg_surface->surface.lock()) {
-        draw_surface(compositor, quad_program, surface, *screen, 0, 0);
+      if (auto surface = (*it)->surface.lock()) {
+        barock::region_t compositor_space{};
+        compositor_space.x = surface->x;
+        compositor_space.y = surface->y;
+        compositor_space.x -= xdg_surface->x;
+        compositor_space.y -= xdg_surface->y;
+
+        if (auto surface = xdg_surface->surface.lock()) {
+          draw_surface(
+            compositor, quad_program, surface, *screen, compositor_space.x, compositor_space.y);
+        }
       }
     }
 
+    // // Draw debug surface
+    // if (auto surface = compositor.pointer.focus.lock()) {
+    //   auto pos = surface->position();
+    //   auto size = surface->full_extent();
+
+    //   glViewport(pos.x, screen->mode.height() - (pos.y + 26 + size.h), size.w, size.h);
+    //   float color[3] = {0xff, 0, 0};
+    //   draw_quad(debug_program, color);
+    // }
+
     // Draw cursor
     if (auto pointer = compositor.cursor.surface.lock(); pointer) {
-      draw_surface(compositor, quad_program, pointer, *screen,
+      draw_surface(compositor,
+                   quad_program,
+                   pointer,
+                   *screen,
                    compositor.cursor.x - compositor.cursor.hotspot.x,
                    compositor.cursor.y - compositor.cursor.hotspot.y);
     } else {
       glEnable(GL_SCISSOR_TEST);
-      glScissor((int)compositor.cursor.x, (int)screen->mode.height() - (compositor.cursor.y + 16),
-                16, 16);
-      glClearColor(1.0, 0., 0., 1.);
+      glScissor(
+        (int)compositor.cursor.x, (int)screen->mode.height() - (compositor.cursor.y + 16), 16, 16);
+      glClearColor(0.0, 1., 0., 1.);
       glClear(GL_COLOR_BUFFER_BIT);
       glDisable(GL_SCISSOR_TEST);
       GL_CHECK;
@@ -366,7 +473,8 @@ main() {
       std::exit(0);
     }
 
-    xkb_state_update_key(compositor.keyboard.xkb.state, scancode + 8, // +8: evdev -> xkb
+    xkb_state_update_key(compositor.keyboard.xkb.state,
+                         scancode + 8, // +8: evdev -> xkb
                          key_state == LIBINPUT_KEY_STATE_PRESSED ? XKB_KEY_DOWN : XKB_KEY_UP);
 
     if (auto surface = compositor.keyboard.focus.lock(); surface) {
@@ -426,35 +534,101 @@ main() {
     }
 
     // First figure out whether a surface currently has mouse focus.
-    if (auto surface = compositor.pointer.focus.lock(); surface) {
-      // Get the global position
-      auto position = surface->position(barock::surface_t::eGlobal);
+    if (auto focus = compositor.pointer.focus.lock()) {
+      // We have a surface that has mouse focus.
 
-      // Check if we are still within the surface bounds.
-      if (!position.intersects(cursor.x, cursor.y)) {
-        // If not, send the leave event (done by set_focus(nullptr))
-        // and try to find a new surface that is behind our cursor.
-        compositor.pointer.set_focus(nullptr);
-        TRACE("Pointer left previous focused surface, searching for new one.");
+      // In Wayland, may be a XDG-Surface, in this case, we have to
+      // correctly account for the offset of the client-side
+      // decoration the client specified in
+      // xdg_surface#set_window_geometry
+
+      // This gives us the global space position of the window.
+      barock::region_t position = focus->position();
+
+      // Next we compute the size of the entire subtree (all
+      // subsurfaces) of the surface.
+      position += focus->full_extent();
+
+      // Now `position` encompasses all subsurfaces this surface has,
+      // at the correct x and y position.
+      //
+      // With this, we can now perform a bounding box check. For this
+      // check, we have to account for the following:
+      //
+      //  1. The encompassing `position` we computed is at 0, 0 and
+      //  fully encompasses all subsurfaces, however, this does not
+      //  account for the subsurface offsets. Some clients position
+      //  their CSD at negative offsets (e.g. foot's title bar being
+      //  located at Y = -26).  For this reason, we have to take our
+      //  position and offset it by the XDG-Surface position (CSD
+      //  offset), such that the original (0, 0) would become (0, -26)
+      //  in this case.
+
+      barock::region_t offset{}, global_position{};
+
+      {
+        auto root = focus->find_parent([](auto &surface) {
+          return surface->role && surface->role->type_id() == barock::xdg_surface_t::id();
+        });
+        if (!root)
+          root = focus;
+
+        // Populate the logical offset (XDG Surface geometry for
+        // client-side decoration.)
+        auto xdg_surface = barock::shared_cast<barock::xdg_surface_t>(root->role);
+        offset.x         = xdg_surface->x;
+        offset.y         = xdg_surface->y;
+
+        // Set the position and full subtree size to `global_position`
+        global_position   = focus->position();
+        auto size         = focus->full_extent();
+        global_position.w = size.w;
+        global_position.h = size.h;
+
+        // Now we subtract the CSD offset from the global position, to
+        // get local coordinates.
+        if (focus != root) {
+          global_position.x -= offset.x;
+          global_position.y -= offset.y;
+        }
+      }
+
+      // Now we compute the local offset from the origin of the
+      // surface.
+      double local_x, local_y;
+      local_x = cursor.x - global_position.x;
+      local_y = cursor.y - global_position.y;
+
+      // INFO("Global Position:\n  x = {}, y = {}, w = {}, h = {}\n"
+      //      "Raw Position:\n  x = {}, y = {}\n"
+      //      "Offset:\n  x = {}, y = {}\n"
+      //      "Cursor: {}, {}\n"
+      //      "Local: {}, {}",
+      //      global_position.x, global_position.y, global_position.w, global_position.h,
+      //      focus->position().x, focus->position().y,
+      //      offset.x, offset.y,
+      //      cursor.x,cursor.y,
+      //      local_x, local_y);
+
+      // With this CSD corrected cursor position, we can now perform
+      // the intersection test.
+      if (!global_position.intersects(cursor.x, cursor.y)) {
+        // If we do not intersect, go find a new surface that the
+        // mouse is over.
         goto focus_new_surface;
       }
 
-      // We are still within the same surface, now compute the surface
-      // local coordinates.
-      auto local_x = cursor.x - position.x;
-      auto local_y = cursor.y - position.y;
-
-      // With the local coordinates, recursively descent the surface
-      // subsurfaces, if any of them match the cursors local
-      // coordinates, focus that one instead and send the events
-      // there.
-      if (auto inner_surface = surface->lookup_at(local_x, local_y)) {
-        auto subsurface = shared_cast<barock::resource_t<barock::surface_t>>(inner_surface);
-        compositor.pointer.set_focus(subsurface);
-        surface = subsurface;
+      // Now we can perform the recursive test against subsurfaces. To
+      // account for the CSD, we add our offset onto the cursor
+      // position.
+      if (auto child = focus->lookup_at(cursor.x + offset.x, cursor.y + offset.y)) {
+        compositor.pointer.set_focus(
+          barock::shared_cast<barock::resource_t<barock::surface_t>>(child));
+        focus = child;
       }
 
-      compositor.pointer.send_motion(surface);
+      // Now we can send a motion event.
+      compositor.pointer.send_motion(focus, local_x, local_y);
       return;
     }
 
@@ -463,21 +637,23 @@ main() {
     for (auto &xdg_surface : compositor.xdg_shell->windows) {
       // Compute the position of the surface
       if (auto candidate = xdg_surface->surface.lock()) {
-        auto position = candidate->position(barock::surface_t::eGlobal);
+        auto position = candidate->position();
+        position.x -= candidate->x;
+        position.y -= candidate->y;
+        auto size  = candidate->full_extent();
+        position.w = size.w;
+        position.h = size.h;
 
         // Check whether our cursor point intersects the surface.
         // TODO: Doesn't respect cursor hotspot yet!
         if (position.intersects(cursor.x, cursor.y)) {
-          auto local_x = cursor.x - position.x;
-          auto local_y = cursor.y - position.y;
-
           // Since we match the top window, we can now recursively
           // descent into the subsurfaces.  Should we find one that
           // matches our local coordinates, use that; otherwise focus
           // `candidate` itself.
-          if (auto subsurface = candidate->lookup_at(local_x, local_y)) {
+          if (auto subsurface = candidate->lookup_at(cursor.x, cursor.y)) {
             compositor.pointer.set_focus(
-              shared_cast<barock::resource_t<barock::surface_t>>(subsurface));
+              barock::shared_cast<barock::resource_t<barock::surface_t>>(subsurface));
           } else {
             compositor.pointer.set_focus(candidate);
           }
@@ -488,8 +664,7 @@ main() {
   });
 
   compositor.input->on_mouse_button.connect([&](const auto &btn) {
-    int32_t x, y, width, height;
-    auto   &cursor = compositor.cursor;
+    auto &cursor = compositor.cursor;
 
     if (auto surface = compositor.pointer.focus.lock(); surface) {
       compositor.pointer.send_button(surface, btn.button, btn.state);
@@ -573,7 +748,8 @@ main() {
   wl_event_loop *loop     = wl_display_get_event_loop(display);
   static int     throttle = 0;
 
-  auto quad_program = init_quad_program();
+  quad_program  = init_quad_program();
+  debug_program = init_quad_program_color();
 
   while (1) {
     // Dispatch events (fd handlers, client requests, etc.)

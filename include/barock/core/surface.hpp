@@ -53,10 +53,12 @@ namespace barock {
       int32_t x, y;
     } offset;
 
-    struct {
-      std::vector<shared_t<subsurface_t>> children;
-      weak_t<surface_t>                   parent;
-    } subsurface;
+    // struct {
+    //   std::vector<shared_t<subsurface_t>> children;
+    //   weak_t<surface_t>                   parent;
+    // } subsurface;
+    shared_t<subsurface_t>              subsurface;
+    std::vector<shared_t<subsurface_t>> children;
   };
 
   struct surface_t {
@@ -66,6 +68,9 @@ namespace barock {
 
     surface_state_t state,
       staging; // Surface state is double buffered
+
+    weak_t<surface_t> parent;
+    int32_t           x{}, y{};
 
     shared_t<base_surface_role_t> role;
 
@@ -84,13 +89,18 @@ namespace barock {
     void
     operator=(const surface_t &) = delete;
 
-    void
-    extent(int32_t &, int32_t &, int32_t &, int32_t &) const;
+    region_t
+    extent() const;
 
-    enum position_type_t { eLocal, eGlobal };
+    /**
+     * @brief Compute the full extent of a surface by recursively adding up buffer sizes.
+     * The returned region encompasses a region that the entire tree of surfaces takes up.
+     */
+    region_t
+    full_extent() const;
 
     region_t
-    position(position_type_t relative_to) const;
+    position() const;
 
     /**
      * @brief Lookup a subsurface at the given coordinates, returns a
@@ -105,8 +115,11 @@ namespace barock {
     bool
     has_role() const;
 
-    void
-    global_coords_to_local(int32_t, int32_t) const;
+    shared_t<surface_t>
+    find_parent(const std::function<bool(shared_t<surface_t> &)> &) const;
+
+    shared_t<surface_t>
+    find_child(const std::function<bool(shared_t<surface_t> &)> &) const;
   };
 
 };

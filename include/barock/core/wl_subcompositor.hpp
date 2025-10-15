@@ -14,9 +14,7 @@ namespace barock {
   struct surface_t;
 
   struct subsurface_t {
-    weak_t<resource_t<surface_t>> parent;
     weak_t<resource_t<surface_t>> surface;
-    int32_t                       x, y;
   };
 
   struct wl_subcompositor_t {

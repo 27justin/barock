@@ -8,6 +8,7 @@ PointerAlignment: Right
 AccessModifierOffset: 0
 AlignAfterOpenBracket: Align
 NamespaceIndentation: All
+AlignOperands: AlignAfterOperator
 
 BreakConstructorInitializers: BeforeComma
 
@@ -19,9 +20,8 @@ AlignConsecutiveDeclarations: Consecutive
 AllowShortLambdasOnASingleLine: Inline
 AllowAllParametersOfDeclarationOnNextLine: false
 
+BinPackArguments: false
 BinPackParameters: false
-BinPackArguments: true
-
 AllowAllArgumentsOnNextLine: true
 
 PenaltyReturnTypeOnItsOwnLine: 0

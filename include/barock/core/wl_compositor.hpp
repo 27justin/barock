@@ -14,19 +14,10 @@ namespace barock {
 
     static constexpr uint32_t VERSION = 6;
 
-    std::mutex                                   surfaces_mutex;
-    std::vector<shared_t<resource_t<surface_t>>> surfaces;
-
     wl_compositor_t(compositor_t &);
     ~wl_compositor_t();
 
     static void
     bind(wl_client *, void *, uint32_t, uint32_t);
-
-    static void
-    handle_create_surface(wl_client *, wl_resource *, uint32_t);
-
-    static void
-    handle_create_region(wl_client *, wl_resource *, uint32_t);
   };
 }

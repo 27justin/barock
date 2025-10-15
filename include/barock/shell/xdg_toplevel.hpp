@@ -14,7 +14,7 @@ namespace barock {
 
   struct xdg_toplevel_data_t {
     std::string title, app_id;
-    int         x, y, width, height;
+    int         width, height;
   };
 
   struct xdg_toplevel_t : public xdg_base_role_t {

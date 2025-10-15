@@ -25,6 +25,9 @@ namespace barock {
 
     bool
     intersects(int32_t x, int32_t y) const;
+
+    region_t
+    union_with(const region_t &other) const;
   };
 
   // Wayland protocol implementation
