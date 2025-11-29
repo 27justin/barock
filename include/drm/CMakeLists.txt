@@ -26,6 +26,7 @@ if(MINIDRM_EGL OR MINIDRM_VULKAN)
 endif()
 
 if(MINIDRM_EGL)
+  message("minidrm: Enabling EGL support")
   # EGL
   pkg_check_modules(EGL REQUIRED egl)
   target_link_libraries(minidrm INTERFACE ${EGL_LIBRARIES})
@@ -38,5 +39,5 @@ if(MINIDRM_EGL)
   target_include_directories(minidrm INTERFACE ${glesv2_INCLUDE_DIRS})
   target_compile_options(minidrm INTERFACE ${glesv2_CFLAGS_OTHER})
 
-  target_compile_options(minidrm INTERFACE "-DMINIDRM_EGL")
+  target_compile_definitions(minidrm INTERFACE "-DMINIDRM_EGL")
 endif()

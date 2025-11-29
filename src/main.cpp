@@ -148,7 +148,7 @@ init_quad_program_color() {
         uniform vec3 u_color;
 
         void main() {
-            gl_FragColor = vec4(u_color, 0.5);
+            gl_FragColor = vec4(u_color, 0.125);
         }
     )";
 
@@ -335,14 +335,6 @@ draw_surface(barock::compositor_t                                    &compositor
     height    = shm->height;
   }
 
-  // if (surface->role && surface->role->type_id() == barock::xdg_surface_t::id()) {
-  //   auto xdg_surface = shared_cast<barock::xdg_surface_t>(surface->role);
-  //   if (xdg_surface) {
-  //     x -= xdg_surface->x;
-  //     y -= xdg_surface->y;
-  //   }
-  // }
-
   // Window is improperly configured, likely that the client hasn't
   // attached a buffer yet.
   if (width <= 0 || height <= 0) {
@@ -366,6 +358,10 @@ draw_surface(barock::compositor_t                                    &compositor
   }
 
 render_subsurfaces:
+
+  float color[3] = { 0., 0.5, 1.0 };
+  draw_quad(debug_program, color);
+
   // Similar to the normal drawing loop, to have proper z-indices, we
   // render from back to front (0 being top-most surface)
   for (auto it = surface->state.children.rbegin(); it != surface->state.children.rend(); ++it) {
@@ -417,16 +413,6 @@ draw(barock::compositor_t                                      &compositor,
         }
       }
     }
-
-    // // Draw debug surface
-    // if (auto surface = compositor.pointer.focus.lock()) {
-    //   auto pos = surface->position();
-    //   auto size = surface->full_extent();
-
-    //   glViewport(pos.x, screen->mode.height() - (pos.y + 26 + size.h), size.w, size.h);
-    //   float color[3] = {0xff, 0, 0};
-    //   draw_quad(debug_program, color);
-    // }
 
     // Draw cursor
     if (auto pointer = compositor.cursor.surface.lock(); pointer) {
@@ -495,6 +481,7 @@ main() {
 
     if (scancode == KEY_ENTER && key_state == LIBINPUT_KEY_STATE_RELEASED) {
       WARN("Starting terminal");
+      // run_command("WAYLAND_DISPLAY=wayland-0 alacritty");
       run_command("foot");
     }
   });
@@ -505,7 +492,7 @@ main() {
     // - LIBINPUT_EVENT_POINTER_MOTION
     // - LIBINPUT_EVENT_POINTER_MOTION_ABSOLUTE
     //
-    // The latter (MOTION_ABSOLUTE), has it's values based on the
+    // The latter (MOTION_ABSOLUTE), has its values based on the
     // absolute extent of the device (imagine a graphics tablet, or a
     // touch-screen).
     //
@@ -542,7 +529,7 @@ main() {
       // decoration the client specified in
       // xdg_surface#set_window_geometry
 
-      // This gives us the global space position of the window.
+      // This gives us the global space position of the surface.
       barock::region_t position = focus->position();
 
       // Next we compute the size of the entire subtree (all
@@ -587,17 +574,13 @@ main() {
 
         // Now we subtract the CSD offset from the global position, to
         // get local coordinates.
-        if (focus != root) {
-          global_position.x -= offset.x;
-          global_position.y -= offset.y;
-        }
+        global_position.x -= offset.x;
+        global_position.y -= offset.y;
       }
 
       // Now we compute the local offset from the origin of the
       // surface.
-      double local_x, local_y;
-      local_x = cursor.x - global_position.x;
-      local_y = cursor.y - global_position.y;
+      double local_x = cursor.x - global_position.x, local_y = cursor.y - global_position.y;
 
       // INFO("Global Position:\n  x = {}, y = {}, w = {}, h = {}\n"
       //      "Raw Position:\n  x = {}, y = {}\n"
@@ -607,7 +590,7 @@ main() {
       //      global_position.x, global_position.y, global_position.w, global_position.h,
       //      focus->position().x, focus->position().y,
       //      offset.x, offset.y,
-      //      cursor.x,cursor.y,
+      //      cursor.x, cursor.y,
       //      local_x, local_y);
 
       // With this CSD corrected cursor position, we can now perform
@@ -615,7 +598,6 @@ main() {
       if (!global_position.intersects(cursor.x, cursor.y)) {
         // If we do not intersect, go find a new surface that the
         // mouse is over.
-        // ERROR("Not intersecting anymore :/");
         compositor.pointer.set_focus(nullptr);
         goto focus_new_surface;
       }
@@ -624,6 +606,7 @@ main() {
       // account for the CSD, we add our offset onto the cursor
       // position.
       if (auto child = focus->lookup_at(cursor.x + offset.x, cursor.y + offset.y)) {
+        ERROR("Child of surface is better candidate for mouse focus, moving to that.");
         compositor.pointer.set_focus(
           barock::shared_cast<barock::resource_t<barock::surface_t>>(child));
         focus = child;
@@ -635,6 +618,7 @@ main() {
     }
 
   focus_new_surface:
+    WARN("Focusing new surface.");
     // No surface currently has mouse focus, check all xdg surfaces.
     for (auto &xdg_surface : compositor.xdg_shell->windows) {
       // Compute the position of the surface
@@ -651,7 +635,13 @@ main() {
           // descent into the subsurfaces.  Should we find one that
           // matches our local coordinates, use that; otherwise focus
           // `candidate` itself.
-          if (auto subsurface = candidate->lookup_at(cursor.x, cursor.y)) {
+          //
+          // To properly interact with the CSD, we have to also add
+          // our logical window offset to this, as some applications
+          // implement CSD by moving it past 0, i.e. title bar at
+          // negative values.
+          if (auto subsurface =
+                candidate->lookup_at(cursor.x + xdg_surface->x, cursor.y + xdg_surface->y)) {
             compositor.pointer.set_focus(
               barock::shared_cast<barock::resource_t<barock::surface_t>>(subsurface));
           } else {

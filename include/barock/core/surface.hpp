@@ -53,10 +53,6 @@ namespace barock {
       int32_t x, y;
     } offset;
 
-    // struct {
-    //   std::vector<shared_t<subsurface_t>> children;
-    //   weak_t<surface_t>                   parent;
-    // } subsurface;
     shared_t<subsurface_t>              subsurface;
     std::vector<shared_t<subsurface_t>> children;
   };

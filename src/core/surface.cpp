@@ -91,6 +91,9 @@ namespace barock {
         position.w    = extent.w;
         position.h    = extent.h;
 
+        // INFO("Lookup:\n  Surface: x = {}, y = {}\n  Cursor: x = {}, y = {}\n",
+        // position.x, position.y, x, y);
+
         if (position.intersects(x, y)) {
           if (auto deeper = subsurface->lookup_at(x, y))
             return deeper;
