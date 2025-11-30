@@ -129,6 +129,10 @@ namespace barock {
       weak_t<surface_t> activated{};
     } window;
 
+    double zoom;
+    double x, y;
+    bool   keychord, move_global_workspace;
+
     compositor_t(minidrm::drm::handle_t drm_handle, const std::string &seat);
     ~compositor_t();
 

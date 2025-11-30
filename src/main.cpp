@@ -102,27 +102,35 @@ create_program(const char *vs_src, const char *fs_src) {
   return program;
 }
 
-// Call once during init
-GLuint
-init_quad_program() {
-  static const char *vs = R"(
+static const char *vs = R"(
         attribute vec2 a_position;
         attribute vec2 a_texcoord;
         varying vec2 v_texcoord;
 
+        uniform float u_zoom;
+        uniform vec2 u_pan;
+        uniform vec2 u_screen_size;
+        uniform vec2 u_surface_size;
+        uniform vec2 u_surface_position;
+
         void main() {
-            gl_Position = vec4(a_position, 0.0, 1.0);
-            v_texcoord = a_texcoord;
+          v_texcoord = a_texcoord;
+          vec2 ws = (u_surface_position + a_position * u_surface_size) * u_zoom;
+          vec2 ndc = ws / u_screen_size * 2.0 - 1.0;
+          ndc.y = -ndc.y; // flip y-axis
+          gl_Position = vec4(ndc, 0.0, 1.0);
         }
     )";
 
+GLuint
+init_quad_program() {
   static const char *fs = R"(
         precision mediump float;
         varying vec2 v_texcoord;
         uniform sampler2D u_texture;
 
         void main() {
-            vec4 color = texture2D(u_texture, vec2(v_texcoord.x, 1.0 - v_texcoord.y));
+            vec4 color = texture2D(u_texture, vec2(v_texcoord.x, v_texcoord.y));
             gl_FragColor = color;
         }
     )";
@@ -132,17 +140,6 @@ init_quad_program() {
 
 GLuint
 init_quad_program_color() {
-  static const char *vs = R"(
-        attribute vec2 a_position;
-        attribute vec2 a_texcoord;
-        varying vec2 v_texcoord;
-
-        void main() {
-            gl_Position = vec4(a_position, 0.0, 1.0);
-            v_texcoord = a_texcoord;
-        }
-    )";
-
   static const char *fs = R"(
         precision mediump float;
         varying vec2 v_texcoord;
@@ -158,17 +155,9 @@ init_quad_program_color() {
 
 void
 draw_quad(GLuint program, GLuint texture) {
-  GL_CHECK;
-
-  glUseProgram(program);
-  GL_CHECK;
-
-  static const GLfloat vertices[] = {
-    // X     Y     U     V
-    -1.0f, -1.0f, 0.0f, 0.0f, // bottom-left
-    1.0f,  -1.0f, 1.0f, 0.0f, // bottom-right
-    -1.0f, 1.0f,  0.0f, 1.0f, // top-left
-    1.0f,  1.0f,  1.0f, 1.0f  // top-right
+  static const GLfloat vertices[] = { // X  Y  U  V
+                                      0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 1.0f, 0.0f,
+                                      0.0f, 1.0f, 0.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f
   };
 
   GLuint attr_pos = glGetAttribLocation(program, "a_position");
@@ -317,13 +306,18 @@ run_command(std::string_view cmd) {
   return pid;
 }
 
+struct render_options {
+  float zoom = 0.0;
+};
+
 void
 draw_surface(barock::compositor_t                                    &compositor,
              GLuint                                                   program,
              barock::shared_t<barock::resource_t<barock::surface_t>> &surface,
              minidrm::framebuffer::egl_t                             &screen,
              int32_t                                                  parent_x,
-             int32_t                                                  parent_y) {
+             int32_t                                                  parent_y,
+             std::optional<render_options>                            override = std::nullopt) {
   // We only render surfaces that have a role attached.
   int32_t x = parent_x, y = parent_y, width = 0, height = 0;
   GLuint  texture = 0;
@@ -346,8 +340,24 @@ draw_surface(barock::compositor_t                                    &compositor
     goto render_subsurfaces;
   }
 
-  glViewport(x, screen.mode.height() - (y + height), width, height);
+  glUseProgram(quad_program);
+
+  glUniform1f(glGetUniformLocation(program, "u_zoom"),
+              override.and_then([](auto &opt) { return std::optional<float>(opt.zoom); })
+                .value_or(compositor.zoom));
   GL_CHECK;
+  glUniform2f(glGetUniformLocation(program, "u_pan"), compositor.x, compositor.y);
+  GL_CHECK;
+  glUniform2f(
+    glGetUniformLocation(program, "u_screen_size"), screen.mode.width(), screen.mode.height());
+  GL_CHECK;
+  glUniform2f(glGetUniformLocation(program, "u_surface_position"), x, y);
+  GL_CHECK;
+  glUniform2f(glGetUniformLocation(program, "u_surface_size"), width, height);
+  GL_CHECK;
+
+  // glViewport(x, screen.mode.height() - (y + height), width, height);
+  // GL_CHECK;
 
   if (surface->state.buffer) {
     texture = upload_texture(*surface->state.buffer);
@@ -363,8 +373,8 @@ draw_surface(barock::compositor_t                                    &compositor
 
 render_subsurfaces:
 
-  float color[3] = { 0., 0.5, 1.0 };
-  draw_quad(debug_program, color);
+  // float color[3] = { 0., 0.5, 1.0 };
+  // draw_quad(debug_program, color);
 
   // Similar to the normal drawing loop, to have proper z-indices, we
   // render from back to front (0 being top-most surface)
@@ -406,10 +416,8 @@ draw(barock::compositor_t                                      &compositor,
       auto xdg_surface = *it;
       if (auto surface = (*it)->surface.lock()) {
         barock::region_t compositor_space{};
-        compositor_space.x = surface->x;
-        compositor_space.y = surface->y;
-        compositor_space.x -= xdg_surface->x;
-        compositor_space.y -= xdg_surface->y;
+        compositor_space.x = surface->x - compositor.x - xdg_surface->x;
+        compositor_space.y = surface->y - compositor.y - xdg_surface->y;
 
         if (auto surface = xdg_surface->surface.lock()) {
           draw_surface(
@@ -420,12 +428,16 @@ draw(barock::compositor_t                                      &compositor,
 
     // Draw cursor
     if (auto pointer = compositor.cursor.surface.lock(); pointer) {
+      double screen_cursor_x = compositor.cursor.x * compositor.zoom;
+      double screen_cursor_y = compositor.cursor.y * compositor.zoom;
+
       draw_surface(compositor,
                    quad_program,
                    pointer,
                    *screen,
-                   compositor.cursor.x - compositor.cursor.hotspot.x,
-                   compositor.cursor.y - compositor.cursor.hotspot.y);
+                   screen_cursor_x - compositor.cursor.hotspot.x,
+                   screen_cursor_y - compositor.cursor.hotspot.y,
+                   render_options{ .zoom = 1.0 });
     } else {
       glEnable(GL_SCISSOR_TEST);
       glScissor(
@@ -455,12 +467,27 @@ main() {
   auto hdl  = card.open();
 
   barock::compositor_t compositor(hdl, getenv("XDG_SEAT"));
+  compositor.zoom     = 1.0;
+  compositor.x        = 0.0;
+  compositor.y        = 0.0;
+  compositor.keychord = false;
 
   compositor.input->on_keyboard_input.connect([&](const barock::keyboard_event_t &key) {
     uint32_t scancode  = libinput_event_keyboard_get_key(key.keyboard);
     uint32_t key_state = libinput_event_keyboard_get_key_state(key.keyboard);
+
     if (scancode == KEY_ESC) {
       std::exit(0);
+    }
+
+    if (scancode == KEY_LEFTMETA || scancode == KEY_LEFTALT) {
+      if (key_state == LIBINPUT_KEY_STATE_PRESSED) {
+        compositor.keychord = true;
+        return;
+      } else {
+        compositor.keychord = false;
+        return;
+      }
     }
 
     xkb_state_update_key(compositor.keyboard.xkb.state,
@@ -507,22 +534,55 @@ main() {
     // relative cursor position.
     auto &cursor = compositor.cursor;
 
+    double dx = 0., dy = 0.;
+
+    // Calculate the delta the mouse moved.
     if (ty == LIBINPUT_EVENT_POINTER_MOTION_ABSOLUTE) {
-      uint32_t sx = 0, sy = 0;
+      static double last_x = 0, last_y = 0;
+      uint32_t      sx = 0, sy = 0;
       for (auto &s : monitors) {
         sx += s->mode.width();
         sy = std::max(sy, s->mode.height());
       }
 
-      cursor.x = libinput_event_pointer_get_absolute_x_transformed(move.pointer, sx);
-      cursor.y = libinput_event_pointer_get_absolute_y_transformed(move.pointer, sy);
+      struct {
+        double x, y;
+      } updated;
+      updated.x = libinput_event_pointer_get_absolute_x_transformed(move.pointer, sx);
+      updated.y = libinput_event_pointer_get_absolute_y_transformed(move.pointer, sy);
+
+      dx = updated.x - last_x;
+      dy = updated.y - last_y;
+
+      last_x = updated.x;
+      last_y = updated.y;
     } else {
-      // Relative (delta) movement, just add this onto our position.
-      cursor.x += libinput_event_pointer_get_dx(move.pointer);
-      cursor.y += libinput_event_pointer_get_dy(move.pointer);
-      cursor.y = std::max(cursor.y, 0.);
-      cursor.x = std::max(cursor.x, 0.);
+      dx = libinput_event_pointer_get_dx(move.pointer);
+      dy = libinput_event_pointer_get_dy(move.pointer);
     }
+
+    if (compositor.move_global_workspace) {
+      // Pan the workspace ...
+      compositor.x -= dx;
+      compositor.y -= dy;
+
+      // then do normal pointer movement, such that the cursor appears
+      // fixed in place, relative to the whole workspace.
+      cursor.x += dx;
+      cursor.y += dy;
+
+      return;
+    } else {
+      // Normal pointer movement
+      cursor.x += dx;
+      cursor.y += dy;
+    }
+
+    struct {
+      double x, y;
+    } ws_cursor{ 0., 0. };
+    ws_cursor.x = compositor.x + cursor.x;
+    ws_cursor.y = compositor.y + cursor.y;
 
     // First figure out whether a surface currently has mouse focus.
     if (auto focus = compositor.pointer.focus.lock()) {
@@ -584,11 +644,11 @@ main() {
 
       // Now we compute the local offset from the origin of the
       // surface.
-      double local_x = cursor.x - global_position.x, local_y = cursor.y - global_position.y;
+      double local_x = ws_cursor.x - global_position.x, local_y = ws_cursor.y - global_position.y;
 
       // With this CSD corrected cursor position, we can now perform
       // the intersection test.
-      if (!global_position.intersects(cursor.x, cursor.y)) {
+      if (!global_position.intersects(ws_cursor.x, ws_cursor.y)) {
         // If we do not intersect, go find a new surface that the
         // mouse is over.
         compositor.pointer.set_focus(nullptr);
@@ -598,7 +658,7 @@ main() {
       // Now we can perform the recursive test against subsurfaces. To
       // account for the CSD, we add our offset onto the cursor
       // position.
-      if (auto child = focus->lookup_at(cursor.x + offset.x, cursor.y + offset.y)) {
+      if (auto child = focus->lookup_at(ws_cursor.x + offset.x, ws_cursor.y + offset.y)) {
         compositor.pointer.set_focus(
           barock::shared_cast<barock::resource_t<barock::surface_t>>(child));
         focus = child;
@@ -621,7 +681,7 @@ main() {
 
         // Check whether our cursor point intersects the surface.
         // TODO: Doesn't respect cursor hotspot yet!
-        if (position.intersects(cursor.x, cursor.y)) {
+        if (position.intersects(ws_cursor.x, ws_cursor.y)) {
           // Since we match the top window, we can now recursively
           // descent into the subsurfaces.  Should we find one that
           // matches our local coordinates, use that; otherwise focus
@@ -632,7 +692,7 @@ main() {
           // implement CSD by moving it past 0, i.e. title bar at
           // negative values.
           if (auto subsurface =
-                candidate->lookup_at(cursor.x + xdg_surface->x, cursor.y + xdg_surface->y)) {
+                candidate->lookup_at(ws_cursor.x + xdg_surface->x, ws_cursor.y + xdg_surface->y)) {
             compositor.pointer.set_focus(
               barock::shared_cast<barock::resource_t<barock::surface_t>>(subsurface));
           } else {
@@ -646,6 +706,17 @@ main() {
 
   compositor.input->on_mouse_button.connect([&](const auto &btn) {
     auto &cursor = compositor.cursor;
+
+    if (compositor.keychord) {
+      if (btn.button == BTN_LEFT) {
+        if (btn.state == barock::mouse_button_t::pressed) {
+          compositor.move_global_workspace = true;
+        } else {
+          compositor.move_global_workspace = false;
+        }
+      }
+      return;
+    }
 
     if (auto pointer_surface = compositor.pointer.focus.lock(); pointer_surface) {
       compositor.pointer.send_button(pointer_surface, btn.button, btn.state);
@@ -698,6 +769,12 @@ main() {
   });
 
   compositor.input->on_mouse_scroll.connect([&compositor](auto ev) {
+    if (compositor.keychord) {
+      // No focus, we zoom the entire workspace.
+      compositor.zoom += (ev.vertical / 150) * -1.0;
+      return;
+    }
+
     if (auto surface = compositor.pointer.focus.lock(); surface) {
       compositor.pointer.send_axis(surface, 0, ev.vertical);
       compositor.pointer.send_axis(surface, 1, ev.horizontal);

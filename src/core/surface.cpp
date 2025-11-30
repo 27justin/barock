@@ -182,7 +182,6 @@ void
 wl_surface_destroy(wl_client *client, wl_resource *wl_surface) {
   // Destroying the surface is only allowed, once the client destroyed
   // all resources that build on this surface. (xdg surfaces, etc.)
-  WARN("wl_surface#destroy");
   auto surface = from_wl_resource<surface_t>(wl_surface);
 
   if (surface->role != nullptr) {
