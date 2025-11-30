@@ -25,6 +25,7 @@
 #include "barock/core/wl_compositor.hpp"
 #include "barock/core/wl_seat.hpp"
 #include "barock/input.hpp"
+#include "barock/resource.hpp"
 #include "barock/shell/xdg_toplevel.hpp"
 #include "barock/shell/xdg_wm_base.hpp"
 #include "barock/util.hpp"
@@ -646,11 +647,25 @@ main() {
   compositor.input->on_mouse_button.connect([&](const auto &btn) {
     auto &cursor = compositor.cursor;
 
-    if (auto surface = compositor.pointer.focus.lock(); surface) {
-      compositor.pointer.send_button(surface, btn.button, btn.state);
+    if (auto pointer_surface = compositor.pointer.focus.lock(); pointer_surface) {
+      compositor.pointer.send_button(pointer_surface, btn.button, btn.state);
 
+      // Our pointer may be focused on a subsurface, in which case we
+      // first have to determine the actual `xdg_surface` to activate.
+      barock::shared_t<barock::resource_t<barock::surface_t>> surface = pointer_surface;
+      if (!surface->has_role() ||
+          (surface->has_role() && surface->role->type_id() != barock::xdg_surface_t::id())) {
+        surface = pointer_surface->find_parent([](auto &surface) {
+          return surface->role && surface->role->type_id() == barock::xdg_surface_t::id();
+        });
+      }
+
+      // On left mouse button, we try to activate the window, and move
+      // the keyboard focus to `surface`
       if (btn.button == BTN_LEFT) {
         if (auto active_surface = compositor.window.activated.lock()) {
+          // Active surface differs from pointer focus, move active
+          // state to our `surface`
           if (active_surface != surface) {
             // First deactivate whatever is currently activated.
             compositor.window.deactivate(active_surface);
@@ -660,22 +675,32 @@ main() {
           }
         } else {
           // We have no active window, immediately activate
-          compositor.window.activate(surface);
+          compositor.window.activate(pointer_surface);
         }
 
-        if (compositor.keyboard.focus != surface) {
-          compositor.keyboard.set_focus(surface);
+        // Now also move the keyboard focus, if it was somewhere else
+        // before.
+        if (compositor.keyboard.focus != pointer_surface) {
+          compositor.keyboard.set_focus(pointer_surface);
         }
       }
       return;
     } else {
-      //
-      // Clicking outside of any window loses all focus
-      //
+      // Click event without pointer focus means we clicked outside of
+      // any window, thus we clear keyboard focus, and remove the active state.
       if (auto surface = compositor.window.activated.lock()) {
         compositor.window.deactivate(surface);
       }
+
+      // Clear the keyboard focus.
       compositor.keyboard.set_focus(nullptr);
+    }
+  });
+
+  compositor.input->on_mouse_scroll.connect([&compositor](auto ev) {
+    if (auto surface = compositor.pointer.focus.lock(); surface) {
+      compositor.pointer.send_axis(surface, 0, ev.vertical);
+      compositor.pointer.send_axis(surface, 1, ev.horizontal);
     }
   });
 

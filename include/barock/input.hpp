@@ -21,6 +21,11 @@ namespace barock {
     enum { released, pressed } state;
   };
 
+  struct mouse_axis_t {
+    libinput_event_pointer *event;
+    double                  horizontal, vertical;
+  };
+
   struct keyboard_event_t {
     struct libinput_event          *event;
     struct libinput_event_keyboard *keyboard;
@@ -33,9 +38,9 @@ namespace barock {
     signal_t<void>                     on_device_remove;
 
     // Mouse events
-    signal_t<mouse_event_t>           on_mouse_move;
-    signal_t<mouse_button_t>          on_mouse_button;
-    signal_t<struct libinput_event *> on_mouse_scroll;
+    signal_t<mouse_event_t>  on_mouse_move;
+    signal_t<mouse_button_t> on_mouse_button;
+    signal_t<mouse_axis_t>   on_mouse_scroll;
 
     // Keyboard events
     signal_t<keyboard_event_t> on_keyboard_input;

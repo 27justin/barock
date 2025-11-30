@@ -198,6 +198,22 @@ namespace barock {
   }
 
   void
+  compositor_t::_pointer::send_axis(shared_t<resource_t<surface_t>> &surface,
+                                    int                              axis,
+                                    double                           delta) {
+    auto      &wl_seat = root->wl_seat;
+    wl_client *client  = surface->owner();
+
+    if (auto seat = wl_seat->find(client); seat) {
+      if (auto pointer = seat->pointer.lock(); pointer) {
+        wl_pointer_send_axis(
+          pointer->resource(), current_time_msec(), axis, wl_fixed_from_double(delta));
+        wl_pointer_send_frame(pointer->resource());
+      }
+    }
+  }
+
+  void
   compositor_t::_pointer::set_focus(shared_t<resource_t<surface_t>> surf) {
     if (auto surface = focus.lock(); surface) {
       // Send leave event

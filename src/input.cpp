@@ -82,7 +82,14 @@ namespace barock {
           break;
         }
         case LIBINPUT_EVENT_POINTER_AXIS: {
-          on_mouse_scroll.emit(event);
+          struct libinput_event_pointer *p = libinput_event_get_pointer_event(event);
+          double                         horizontal =
+            libinput_event_pointer_get_axis_value(p, LIBINPUT_POINTER_AXIS_SCROLL_HORIZONTAL);
+          double vertical =
+            libinput_event_pointer_get_axis_value(p, LIBINPUT_POINTER_AXIS_SCROLL_VERTICAL);
+
+          on_mouse_scroll.emit(
+            mouse_axis_t{ .event = p, .horizontal = horizontal, .vertical = vertical });
           break;
         }
         case LIBINPUT_EVENT_KEYBOARD_KEY: {
