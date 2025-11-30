@@ -82,11 +82,26 @@ namespace barock {
           break;
         }
         case LIBINPUT_EVENT_POINTER_AXIS: {
+          // LIBINPUT_EVENT_POINTER_AXIS events are sent for regular
+          // wheel clicks, usually those representing one detent on
+          // the device. These wheel clicks usually require a rotation
+          // of 15 or 20 degrees. This event is deprecated as of
+          // libinput 1.19.
+          //
+          // (source: https://wayland.freedesktop.org/libinput/doc/latest/wheel-api.html)
+          break;
+        }
+        case LIBINPUT_EVENT_POINTER_SCROLL_WHEEL: {
           struct libinput_event_pointer *p = libinput_event_get_pointer_event(event);
-          double                         horizontal =
-            libinput_event_pointer_get_axis_value(p, LIBINPUT_POINTER_AXIS_SCROLL_HORIZONTAL);
-          double vertical =
-            libinput_event_pointer_get_axis_value(p, LIBINPUT_POINTER_AXIS_SCROLL_VERTICAL);
+          double                         horizontal{}, vertical{};
+
+          if (libinput_event_pointer_has_axis(p, LIBINPUT_POINTER_AXIS_SCROLL_HORIZONTAL))
+            horizontal = libinput_event_pointer_get_scroll_value_v120(
+              p, LIBINPUT_POINTER_AXIS_SCROLL_HORIZONTAL);
+
+          if (libinput_event_pointer_has_axis(p, LIBINPUT_POINTER_AXIS_SCROLL_VERTICAL))
+            vertical = libinput_event_pointer_get_scroll_value_v120(
+              p, LIBINPUT_POINTER_AXIS_SCROLL_VERTICAL);
 
           on_mouse_scroll.emit(
             mouse_axis_t{ .event = p, .horizontal = horizontal, .vertical = vertical });

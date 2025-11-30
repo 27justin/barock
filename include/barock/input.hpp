@@ -55,6 +55,10 @@ namespace barock {
     input_t(const input_t &) = delete;
     ~input_t();
 
+    struct _mouse {
+      float acceleration = 0.7f;
+    } mouse;
+
     private:
     libinput_interface interface_;
     struct libinput   *input_;

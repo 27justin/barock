@@ -428,8 +428,8 @@ draw(barock::compositor_t                                      &compositor,
 
     // Draw cursor
     if (auto pointer = compositor.cursor.surface.lock(); pointer) {
-      double screen_cursor_x = compositor.cursor.x * compositor.zoom;
-      double screen_cursor_y = compositor.cursor.y * compositor.zoom;
+      double screen_cursor_x = (compositor.cursor.x - compositor.x) * compositor.zoom;
+      double screen_cursor_y = (compositor.cursor.y - compositor.y) * compositor.zoom;
 
       draw_surface(compositor,
                    quad_program,
@@ -538,7 +538,7 @@ main() {
 
     // Calculate the delta the mouse moved.
     if (ty == LIBINPUT_EVENT_POINTER_MOTION_ABSOLUTE) {
-      static double last_x = 0, last_y = 0;
+      static double last_x = 0., last_y = 0.;
       uint32_t      sx = 0, sy = 0;
       for (auto &s : monitors) {
         sx += s->mode.width();
@@ -547,18 +547,35 @@ main() {
 
       struct {
         double x, y;
-      } updated;
+      } updated{};
+
       updated.x = libinput_event_pointer_get_absolute_x_transformed(move.pointer, sx);
       updated.y = libinput_event_pointer_get_absolute_y_transformed(move.pointer, sy);
 
-      dx = updated.x - last_x;
-      dy = updated.y - last_y;
+      // Convert absolute screen coords to workspace coords
+      double workspace_x = compositor.x + updated.x / compositor.zoom;
+      double workspace_y = compositor.y + updated.y / compositor.zoom;
+
+      // Compute delta in workspace space
+      double screen_dx = updated.x - last_x;
+      double screen_dy = updated.y - last_y;
+
+      dx = screen_dx / compositor.zoom;
+      dy = screen_dy / compositor.zoom;
+
+      // Update cursor
+      cursor.x = workspace_x;
+      cursor.y = workspace_y;
 
       last_x = updated.x;
       last_y = updated.y;
     } else {
-      dx = libinput_event_pointer_get_dx(move.pointer);
-      dy = libinput_event_pointer_get_dy(move.pointer);
+      dx = libinput_event_pointer_get_dx(move.pointer) * compositor.input->mouse.acceleration /
+           compositor.zoom;
+      dy = libinput_event_pointer_get_dy(move.pointer) * compositor.input->mouse.acceleration /
+           compositor.zoom;
+      cursor.x += dx;
+      cursor.y += dy;
     }
 
     if (compositor.move_global_workspace) {
@@ -566,23 +583,21 @@ main() {
       compositor.x -= dx;
       compositor.y -= dy;
 
-      // then do normal pointer movement, such that the cursor appears
-      // fixed in place, relative to the whole workspace.
-      cursor.x += dx;
-      cursor.y += dy;
-
+      // Negate the cursor movement, to make it static during panning.
+      cursor.x -= dx;
+      cursor.y -= dy;
       return;
-    } else {
-      // Normal pointer movement
-      cursor.x += dx;
-      cursor.y += dy;
     }
+
+    // Clamp to active monitor
+    cursor.x = std::clamp(cursor.x, compositor.x, compositor.x + 1280. / compositor.zoom);
+    cursor.y = std::clamp(cursor.y, compositor.y, compositor.y + 800. / compositor.zoom);
 
     struct {
       double x, y;
     } ws_cursor{ 0., 0. };
-    ws_cursor.x = compositor.x + cursor.x;
-    ws_cursor.y = compositor.y + cursor.y;
+    ws_cursor.x = cursor.x;
+    ws_cursor.y = cursor.y;
 
     // First figure out whether a surface currently has mouse focus.
     if (auto focus = compositor.pointer.focus.lock()) {
@@ -770,8 +785,25 @@ main() {
 
   compositor.input->on_mouse_scroll.connect([&compositor](auto ev) {
     if (compositor.keychord) {
-      // No focus, we zoom the entire workspace.
-      compositor.zoom += (ev.vertical / 150) * -1.0;
+      double zoom_delta = (ev.vertical / 120.0) * -0.02;
+      double old_zoom   = compositor.zoom;
+      double new_zoom   = std::max(old_zoom + zoom_delta, 0.025);
+
+      // Current cursor position in workspace space
+      double cursor_ws_x = compositor.cursor.x;
+      double cursor_ws_y = compositor.cursor.y;
+
+      // Screen space position of cursor before zoom
+      double cursor_screen_x = (cursor_ws_x - compositor.x) * old_zoom;
+      double cursor_screen_y = (cursor_ws_y - compositor.y) * old_zoom;
+
+      compositor.zoom = new_zoom;
+
+      // Adjust camera so that the cursor stays at same screen
+      // position
+      compositor.x = cursor_ws_x - cursor_screen_x / new_zoom;
+      compositor.y = cursor_ws_y - cursor_screen_y / new_zoom;
+
       return;
     }
 
