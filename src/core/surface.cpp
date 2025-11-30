@@ -236,6 +236,9 @@ wl_surface_attach(wl_client   *client,
     return;
   }
 
+  // auto shm_buffer = from_wl_resource<shm_buffer_t>(wl_buffer);
+  // WARN("dimensions: {} x {}", shm_buffer->width, shm_buffer->height);
+
   // Buffers are double-buffered
   surface->staging.buffer = from_wl_resource<shm_buffer_t>(wl_buffer);
 }

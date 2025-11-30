@@ -7,6 +7,7 @@
 #include "barock/shell/xdg_wm_base.hpp"
 
 #include <linux/input.h>
+#include <wayland-server-core.h>
 #include <wayland-util.h>
 
 #include "../log.hpp"
@@ -204,6 +205,8 @@ xdg_toplevel_resize(wl_client   *client,
                     uint32_t     edges) {
   auto toplevel = from_wl_resource<xdg_toplevel_t>(wl_xdg_toplevel);
 
+  WARN("xdg_toplevel#resize");
+
   shared_t<resource_t<xdg_surface_t>> xdg_surface;
   if (xdg_surface = toplevel->xdg_surface.lock(); !xdg_surface) {
     ERROR("xdg_toplevel wants to be resized, but attached xdg_surface is not valid!");
@@ -240,7 +243,8 @@ xdg_toplevel_resize(wl_client   *client,
   compositor->keyboard.set_focus(nullptr);
 
   subscriptions->on_mouse_move = compositor->input->on_mouse_move.connect(
-    [wl_surface, toplevel, compositor, subscriptions](const auto &event) mutable {
+    [wl_surface, toplevel, wl_xdg_toplevel, compositor, subscriptions, xdg_surface](
+      const auto &event) mutable {
       if (!subscriptions->active.load())
         return;
 
@@ -282,19 +286,26 @@ xdg_toplevel_resize(wl_client   *client,
       wl_array_init(&state);
       *reinterpret_cast<xdg_toplevel_state *>(wl_array_add(&state, sizeof(xdg_toplevel_state))) =
         XDG_TOPLEVEL_STATE_RESIZING;
-      xdg_toplevel_send_configure(toplevel->resource(), new_w, new_h, &state);
+      xdg_toplevel_send_configure(wl_xdg_toplevel, new_w, new_h, &state);
       wl_array_release(&state);
+
+      // Required: otherwise the client won't actually resize
+      //
+      // ... This configure event asks the client to resize its
+      // toplevel surface or to change its state. The configured state
+      // should not be applied immediately. See xdg_surface.configure
+      // for details.
+      xdg_surface_send_configure(xdg_surface->resource(),
+                                 wl_display_next_serial(xdg_surface->shell.compositor.display()));
     });
 
   subscriptions->on_mouse_button = compositor->input->on_mouse_button.connect(
-    [compositor, subscriptions, toplevel, wl_surface](const auto &event) mutable {
+    [compositor, subscriptions, toplevel, wl_surface, xdg_surface](const auto &event) mutable {
       if (event.button == BTN_LEFT && event.state == 0) {
         subscriptions->active.store(false);
 
         wl_array state;
         wl_array_init(&state);
-        *reinterpret_cast<xdg_toplevel_state *>(wl_array_add(&state, sizeof(xdg_toplevel_state))) =
-          XDG_TOPLEVEL_STATE_RESIZING;
         xdg_toplevel_send_configure(
           toplevel->resource(), toplevel->data.width, toplevel->data.height, &state);
         wl_array_release(&state);
