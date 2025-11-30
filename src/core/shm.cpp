@@ -35,8 +35,8 @@ namespace barock {
 
     // TODO: Do we need more, or can we efficiently query what the GPU
     // can import without manually swizzling ourselves?
-    wl_shm_send_format(resource, WL_SHM_FORMAT_XRGB8888);
-    wl_shm_send_format(resource, WL_SHM_FORMAT_RGBA8888);
+    // wl_shm_send_format(resource, WL_SHM_FORMAT_XRGB8888);
+    // wl_shm_send_format(resource, WL_SHM_FORMAT_RGBA8888);
     wl_shm_send_format(resource, WL_SHM_FORMAT_ARGB8888);
   }
 }
@@ -49,8 +49,14 @@ wl_shm_create_pool(wl_client *client, wl_resource *wl_shm, uint32_t id, int32_t 
     return;
   }
 
-  auto wl_shm_pool = make_resource<shm_pool_t>(client, wl_shm_pool_interface, wl_shm_pool_impl,
-                                               wl_resource_get_version(wl_shm), id, fd, size, data);
+  auto wl_shm_pool = make_resource<shm_pool_t>(client,
+                                               wl_shm_pool_interface,
+                                               wl_shm_pool_impl,
+                                               wl_resource_get_version(wl_shm),
+                                               id,
+                                               fd,
+                                               size,
+                                               data);
 }
 
 void
@@ -63,5 +69,5 @@ wl_shm_release(wl_client *, wl_resource *wl_shm) {
 
     Objects created via this interface remain unaffected.
   */
-  wl_resource_destroy(wl_shm);
+  // wl_resource_destroy(wl_shm);
 }

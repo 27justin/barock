@@ -37,8 +37,7 @@ namespace barock {
     struct wl_resource *resource =
       wl_resource_create(client, &wl_compositor_interface, version, id);
 
-    wl_resource_set_implementation(
-      resource, &wl_compositor_impl, ud, [](wl_resource *res) { wl_resource_destroy(res); });
+    wl_resource_set_implementation(resource, &wl_compositor_impl, ud, nullptr);
   }
 }; // namespace barock
 
@@ -55,6 +54,6 @@ wl_compositor_create_surface(wl_client *client, wl_resource *wl_compositor, uint
 
 void
 wl_compositor_create_region(wl_client *client, wl_resource *wl_compositor, uint32_t id) {
-  auto wl_region = make_resource<region_t>(
+  make_resource<region_t>(
     client, wl_region_interface, wl_region_impl, wl_resource_get_version(wl_compositor), id);
 }

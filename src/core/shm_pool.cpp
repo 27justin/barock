@@ -1,4 +1,5 @@
 #include "barock/core/shm_pool.hpp"
+#include "barock/resource.hpp"
 #include "wl/wayland-protocol.h"
 #include <sys/mman.h>
 
@@ -46,14 +47,17 @@ wl_shm_pool_create_buffer(wl_client   *client,
   auto buffer = make_resource<shm_buffer_t>(
     client, wl_buffer_interface, wl_buffer_impl, wl_resource_get_version(wl_shm_pool), id);
 
-  buffer->pool   = pool;
+  buffer->pool = pool;
+
   buffer->offset = offset;
   buffer->width  = width;
   buffer->height = height;
   buffer->stride = stride;
   buffer->format = format;
 
-  buffer->on_destroy.connect([buffer](wl_resource *) mutable {
+  buffer->on_destroy.connect([](wl_resource *resource) mutable {
+    auto buffer = from_wl_resource<shm_buffer_t>(resource);
+
     auto it = std::find(buffer->pool->buffers.begin(), buffer->pool->buffers.end(), buffer);
     if (it != buffer->pool->buffers.end())
       buffer->pool->buffers.erase(it);
@@ -69,11 +73,11 @@ wl_shm_pool_destroy(wl_client *client, wl_resource *wl_shm_pool) {
 
     Destroy the shared memory pool.
 
-    The mmapped memory will be released when all buffers that have been created from this pool are
+    The `mmap`ed memory will be released when all buffers that have been created from this pool are
     gone.
    */
   auto pool = from_wl_resource<shm_pool_t>(wl_shm_pool);
-  wl_resource_destroy(pool->resource());
+  wl_resource_destroy(wl_shm_pool);
 }
 
 void
@@ -102,7 +106,7 @@ wl_shm_pool_resize(wl_client *client, wl_resource *wl_shm_pool, int32_t size) {
 
   pool->size = size;
   pool->data = mmap(nullptr, pool->size, PROT_READ | PROT_WRITE, MAP_SHARED, pool->fd, 0);
-  if (!pool->data) {
+  if (pool->data == MAP_FAILED) {
     wl_client_post_no_memory(client);
     return;
   }
@@ -110,6 +114,7 @@ wl_shm_pool_resize(wl_client *client, wl_resource *wl_shm_pool, int32_t size) {
 
 void
 wl_buffer_destroy(wl_client *, wl_resource *wl_buffer) {
+  auto buffer = from_wl_resource<shm_buffer_t>(wl_buffer);
   wl_resource_destroy(wl_buffer);
 }
 

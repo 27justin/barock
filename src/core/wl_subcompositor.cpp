@@ -94,10 +94,8 @@ wl_subcompositor_get_subsurface(wl_client   *client,
   // The to-be sub-surface must not already have another role, and it
   // must not have an existing wl_subsurface object. Otherwise the
   // bad_surface protocol error is raised.
-  shared_t<resource_t<surface_t>> child_surface =
-    *(decltype(child_surface) *)wl_resource_get_user_data(wl_surface);
-  shared_t<resource_t<surface_t>> parent_surface =
-    *(decltype(parent_surface) *)wl_resource_get_user_data(parent);
+  shared_t<resource_t<surface_t>> child_surface  = from_wl_resource<surface_t>(wl_surface);
+  shared_t<resource_t<surface_t>> parent_surface = from_wl_resource<surface_t>(parent);
 
   // TODO: This broke
   // if (child_surface->role != nullptr) {
@@ -166,6 +164,4 @@ wl_subsurface_destroy(wl_client *, wl_resource *wl_subsurface) {
       }
     }
   }
-
-  wl_resource_destroy(wl_subsurface);
 }

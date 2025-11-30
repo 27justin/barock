@@ -10,7 +10,6 @@ namespace barock {
   struct shm_buffer_t;
 
   struct shm_pool_t {
-    public:
     void                             *data;
     int32_t                           size;
     int32_t                           fd;
@@ -21,9 +20,9 @@ namespace barock {
   };
 
   struct shm_buffer_t {
-    shared_t<barock::shm_pool_t> pool;
-    int32_t                      offset, width, height, stride;
-    uint32_t                     format;
+    shared_t<shm_pool_t> pool;
+    int32_t              offset, width, height, stride;
+    uint32_t             format;
 
     void *
     data();

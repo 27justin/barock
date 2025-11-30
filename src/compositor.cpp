@@ -66,10 +66,10 @@ namespace barock {
     input = make_unique<input_t>(seat);
 
     // Initialize protocols
-    xdg_shell              = make_unique<xdg_shell_t>(*this);
-    wl_compositor          = make_unique<wl_compositor_t>(*this);
-    shm                    = make_unique<shm_t>(*this);
-    dmabuf                 = make_unique<dmabuf_t>(*this);
+    xdg_shell     = make_unique<xdg_shell_t>(*this);
+    wl_compositor = make_unique<wl_compositor_t>(*this);
+    shm           = make_unique<shm_t>(*this);
+    // dmabuf                 = make_unique<dmabuf_t>(*this);
     wl_subcompositor       = make_unique<wl_subcompositor_t>(*this);
     wl_seat                = make_unique<wl_seat_t>(*this);
     wl_data_device_manager = make_unique<wl_data_device_manager_t>(*this);

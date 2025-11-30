@@ -193,8 +193,6 @@ wl_surface_destroy(wl_client *client, wl_resource *wl_surface) {
   }
 
   surface->state.buffer = nullptr;
-
-  wl_resource_destroy(wl_surface);
 }
 
 void

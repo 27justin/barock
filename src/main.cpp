@@ -265,6 +265,9 @@ upload_texture(barock::shm_buffer_t &buffer) {
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
   GL_CHECK;
 
+  glPixelStorei(GL_UNPACK_ROW_LENGTH_EXT, buffer.stride / 4);
+  GL_CHECK;
+
   glTexImage2D(GL_TEXTURE_2D,
                0,
                GL_RGBA,
@@ -582,17 +585,6 @@ main() {
       // surface.
       double local_x = cursor.x - global_position.x, local_y = cursor.y - global_position.y;
 
-      // INFO("Global Position:\n  x = {}, y = {}, w = {}, h = {}\n"
-      //      "Raw Position:\n  x = {}, y = {}\n"
-      //      "Offset:\n  x = {}, y = {}\n"
-      //      "Cursor: {}, {}\n"
-      //      "Local: {}, {}",
-      //      global_position.x, global_position.y, global_position.w, global_position.h,
-      //      focus->position().x, focus->position().y,
-      //      offset.x, offset.y,
-      //      cursor.x, cursor.y,
-      //      local_x, local_y);
-
       // With this CSD corrected cursor position, we can now perform
       // the intersection test.
       if (!global_position.intersects(cursor.x, cursor.y)) {
@@ -606,7 +598,6 @@ main() {
       // account for the CSD, we add our offset onto the cursor
       // position.
       if (auto child = focus->lookup_at(cursor.x + offset.x, cursor.y + offset.y)) {
-        ERROR("Child of surface is better candidate for mouse focus, moving to that.");
         compositor.pointer.set_focus(
           barock::shared_cast<barock::resource_t<barock::surface_t>>(child));
         focus = child;
@@ -618,7 +609,6 @@ main() {
     }
 
   focus_new_surface:
-    WARN("Focusing new surface.");
     // No surface currently has mouse focus, check all xdg surfaces.
     for (auto &xdg_surface : compositor.xdg_shell->windows) {
       // Compute the position of the surface

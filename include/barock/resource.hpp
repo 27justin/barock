@@ -46,8 +46,9 @@ namespace barock {
       _Ty                  *data;        ///< Pointer to the managed object
     };
 
-    control_t *control;                  ///< Pointer to the control block
-    _Ty       *alias{ nullptr };
+    control_t            *control;       ///< Pointer to the control block
+    _Ty                  *alias{ nullptr };
+    std::function<void()> destructor_;
 
     /**
      * @brief Private constructor from a control block pointer.
@@ -61,6 +62,9 @@ namespace barock {
       , alias(alias) {
       if (control) {
         control->strong.fetch_add(1);
+        destructor_ = [this]() {
+          delete control->data;
+        };
       }
     }
 
@@ -78,11 +82,15 @@ namespace barock {
     shared_t(const shared_t<_Other> &other, _Ty *alias_ptr)
       requires std::is_base_of_v<_Ty, _Other> || std::is_base_of_v<_Other, _Ty>
     {
-      control = reinterpret_cast<control_t *>(other.control); // safe: we keep original control
+      control = reinterpret_cast<control_t *>(other.control);
       alias   = alias_ptr;
 
       if (control)
         control->strong.fetch_add(1, std::memory_order_relaxed);
+
+      destructor_ = [this]() {
+        delete reinterpret_cast<const _Other *>(control->data);
+      };
     }
 
     public:
@@ -95,7 +103,16 @@ namespace barock {
      */
     shared_t(_Ty *ptr)
       : alias(ptr) {
-      control = new control_t{ .strong = 1, .weak = 0, .data = ptr };
+      if (ptr != nullptr) {
+        control     = new control_t{ .strong = 1, .weak = 0, .data = ptr };
+        destructor_ = [this]() {
+          delete control->data;
+        };
+      } else {
+        // Initialize with nullptr's, this object is invalid!
+        control = nullptr;
+        alias   = nullptr;
+      }
     }
 
     /**
@@ -106,7 +123,10 @@ namespace barock {
      *
      */
     shared_t()
-      : control(nullptr) {}
+      : control(nullptr) {
+      destructor_ = [this]() {
+      };
+    }
 
     /**
      * @brief Copy constructor.
@@ -120,6 +140,10 @@ namespace barock {
       , alias(other.alias) {
       if (control)
         control->strong.fetch_add(1);
+
+      destructor_ = [this]() {
+        delete control->data;
+      };
     }
 
     /**
@@ -140,6 +164,10 @@ namespace barock {
       }
       typename std::remove_cv<_Other>::type *aliased = const_cast<decltype(aliased)>(other.alias);
       alias                                          = static_cast<_Ty *>(aliased);
+
+      destructor_ = [this]() {
+        delete (_Other *)control->data;
+      };
     }
 
     /**
@@ -156,7 +184,9 @@ namespace barock {
       auto old_count = control->strong.fetch_sub(1, std::memory_order_acq_rel);
 
       if (old_count == 1) {
-        delete control->data;
+        if (destructor_)
+          destructor_();
+
         control->data = nullptr;
 
         if (control->weak.load(std::memory_order_acquire) == 0) {
@@ -252,6 +282,10 @@ namespace barock {
       if (control)
         control->strong.fetch_add(1, std::memory_order_relaxed);
 
+      destructor_ = [this] {
+        delete control->data;
+      };
+
       return *this;
     }
 
@@ -263,6 +297,10 @@ namespace barock {
       if (dst.control) {
         dst.control->strong.fetch_add(1, std::memory_order_relaxed);
       }
+
+      dst.destructor_ = [ctrl = dst.control] {
+        delete reinterpret_cast<const _From *>(ctrl->data);
+      };
     }
 
     /**
@@ -307,10 +345,16 @@ namespace barock {
     operator=(shared_t &&other) noexcept {
       if (this != &other) {
         this->~shared_t();
-        control       = other.control;
-        alias         = other.alias;
-        other.control = nullptr;
-        other.alias   = nullptr;
+        control     = other.control;
+        alias       = other.alias;
+        destructor_ = [this] {
+          delete control->data;
+        };
+
+        other.control     = nullptr;
+        other.alias       = nullptr;
+        other.destructor_ = [] {
+        };
       }
       return *this;
     }
@@ -456,8 +500,10 @@ namespace barock {
     weak_t(const shared_t<_Ty> &parent)
       : control(parent.control)
       , alias(parent.alias) {
-      // Increment weak references to ensure control block is retained
-      control->weak.fetch_add(1);
+
+      // Increment weak references to ensure control block stays alive
+      if (control)
+        control->weak.fetch_add(1);
     }
 
     weak_t(const weak_t &other)
@@ -465,6 +511,13 @@ namespace barock {
       , alias(other.alias) {
       if (control)
         control->weak.fetch_add(1, std::memory_order_relaxed);
+    }
+
+    weak_t(weak_t &&other) noexcept
+      : control(other.control)
+      , alias(other.alias) {
+      other.control = nullptr;
+      other.alias   = nullptr;
     }
 
     /**
@@ -483,7 +536,7 @@ namespace barock {
      * deletes the control block.
      */
     ~weak_t() {
-      if (!control)
+      if (control == nullptr)
         return;
 
       // Decrement weak count, check if both counts are zero
@@ -524,6 +577,30 @@ namespace barock {
       return *this;
     }
 
+    weak_t &
+    operator=(weak_t &&other) noexcept {
+      if (this == &other)
+        return *this;
+
+      // Release old
+      if (control) {
+        if (control->weak.fetch_sub(1, std::memory_order_acq_rel) == 1 &&
+            control->strong.load(std::memory_order_acquire) == 0) {
+          delete control;
+        }
+      }
+
+      // Take from `other`
+      control = other.control;
+      alias   = other.alias;
+
+      // Invalidate `other`
+      other.control = nullptr;
+      other.alias   = nullptr;
+
+      return *this;
+    }
+
     /**
      * @brief Equality operator.
      *
@@ -550,7 +627,7 @@ namespace barock {
       if (control && control->strong.load() > 0) {
         return shared_t<_Ty>(control, alias);
       } else {
-        return nullptr;
+        return shared_t<_Ty>();
       }
     }
 
@@ -569,7 +646,7 @@ namespace barock {
           reinterpret_cast<typename shared_t<const _Ty>::control_t *>(control),
           const_cast<_Ty *>(alias));
       } else {
-        return nullptr;
+        return shared_t<const _Ty>();
       }
     }
   };

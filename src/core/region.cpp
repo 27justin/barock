@@ -1,6 +1,7 @@
 #include "barock/core/region.hpp"
 #include "../log.hpp"
 #include "barock/compositor.hpp"
+#include "barock/resource.hpp"
 
 #include <algorithm>
 #include <wayland-server-core.h>
@@ -70,8 +71,8 @@ wl_region_add(wl_client *,
               int32_t      y,
               int32_t      width,
               int32_t      height) {
-  barock::region_t *region = (barock::region_t *)wl_resource_get_user_data(wl_region);
-  *region                  = *region + barock::region_t{ x, y, width, height };
+  barock::shared_t<barock::region_t> region = barock::from_wl_resource<barock::region_t>(wl_region);
+  *region                                   = *region + barock::region_t{ x, y, width, height };
 }
 
 void
@@ -81,14 +82,14 @@ wl_region_subtract(wl_client *,
                    int32_t      y,
                    int32_t      width,
                    int32_t      height) {
-  barock::region_t *region = (barock::region_t *)wl_resource_get_user_data(wl_region);
-  *region                  = *region - barock::region_t{ x, y, width, height };
+
+  barock::shared_t<barock::region_t> region = barock::from_wl_resource<barock::region_t>(wl_region);
+  *region                                   = *region - barock::region_t{ x, y, width, height };
 }
 
 void
 wl_region_destroy(wl_client *, wl_resource *wl_region) {
-  barock::region_t *region = (barock::region_t *)wl_resource_get_user_data(wl_region);
-  delete region;
+  // wl_resource_destroy(wl_region);
 }
 
 // Wayland protocol implementation
