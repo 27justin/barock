@@ -2,6 +2,7 @@
 
 #include "barock/compositor.hpp"
 #include "barock/core/surface.hpp"
+#include "barock/fbo.hpp"
 #include "barock/resource.hpp"
 
 #include <any>
@@ -27,6 +28,8 @@ namespace barock {
     int32_t x, y, width, height;
 
     signal_t<void> on_geometry_change;
+
+    fbo_t framebuffer;
 
     ~xdg_surface_t();
     xdg_surface_t(xdg_shell_t &parent, shared_t<resource_t<surface_t>> base);

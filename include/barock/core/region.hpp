@@ -26,6 +26,9 @@ namespace barock {
     bool
     intersects(int32_t x, int32_t y) const;
 
+    bool
+    intersects(const region_t &) const;
+
     region_t
     union_with(const region_t &other) const;
   };

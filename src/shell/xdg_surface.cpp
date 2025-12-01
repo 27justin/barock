@@ -14,7 +14,11 @@ namespace barock {
     : shell(parent)
     , surface(base)
     , role(xdg_role_t::eNone)
-    , role_impl() {}
+    , role_impl()
+    , width(0)
+    , height(0)
+    , x(0)
+    , y(0) {}
 
   xdg_surface_t::~xdg_surface_t() {}
 }

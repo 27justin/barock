@@ -24,6 +24,7 @@
 #include "barock/core/surface.hpp"
 #include "barock/core/wl_compositor.hpp"
 #include "barock/core/wl_seat.hpp"
+#include "barock/fbo.hpp"
 #include "barock/input.hpp"
 #include "barock/resource.hpp"
 #include "barock/shell/xdg_toplevel.hpp"
@@ -47,16 +48,7 @@
     }                                                                                              \
   } while (0)
 
-GLint debug_program, quad_program;
-
-void
-check_opengl_error() {
-  GLenum error = glGetError();
-  if (error != GL_NO_ERROR) {
-    ERROR("OpenGL Error: {}", error);
-    std::exit(1);
-  }
-}
+GLint quad_program, fbo_program;
 
 // Simple helper: compile shader
 GLuint
@@ -102,53 +94,91 @@ create_program(const char *vs_src, const char *fs_src) {
   return program;
 }
 
-static const char *vs = R"(
+GLuint
+init_fbo_program() {
+  static const char *vs = R"(
+        precision mediump float;
+
         attribute vec2 a_position;
         attribute vec2 a_texcoord;
-        varying vec2 v_texcoord;
+        varying vec2 uv;
 
         uniform float u_zoom;
-        uniform vec2 u_pan;
         uniform vec2 u_screen_size;
         uniform vec2 u_surface_size;
         uniform vec2 u_surface_position;
+        uniform bool u_flip_y;
 
         void main() {
-          v_texcoord = a_texcoord;
+          uv = vec2(a_texcoord.x, 1.0 - a_texcoord.y);
           vec2 ws = (u_surface_position + a_position * u_surface_size) * u_zoom;
           vec2 ndc = ws / u_screen_size * 2.0 - 1.0;
+
           ndc.y = -ndc.y; // flip y-axis
+
           gl_Position = vec4(ndc, 0.0, 1.0);
         }
     )";
 
-GLuint
-init_quad_program() {
   static const char *fs = R"(
-        precision mediump float;
-        varying vec2 v_texcoord;
-        uniform sampler2D u_texture;
+precision mediump float;
 
-        void main() {
-            vec4 color = texture2D(u_texture, vec2(v_texcoord.x, v_texcoord.y));
-            gl_FragColor = color;
-        }
-    )";
+varying vec2 uv;
+uniform sampler2D u_texture;
+
+uniform float u_corner_radius;
+uniform vec2 u_surface_size;
+uniform vec2 u_surface_position;
+uniform float u_zoom;
+
+void main() {
+    float alpha = 1.0;
+
+    vec4 color = texture2D(u_texture, uv);
+    gl_FragColor = vec4(color.rgb, color.a * alpha);
+}
+)";
 
   return create_program(vs, fs);
 }
 
 GLuint
-init_quad_program_color() {
-  static const char *fs = R"(
+init_quad_program() {
+  static const char *vs = R"(
         precision mediump float;
-        varying vec2 v_texcoord;
-        uniform vec3 u_color;
+
+        attribute vec2 a_position;
+        attribute vec2 a_texcoord;
+        varying vec2 uv;
+
+        uniform vec2 u_screen_size;
+        uniform vec2 u_surface_size;
+        uniform vec2 u_surface_position;
+        uniform bool u_flip_y;
 
         void main() {
-            gl_FragColor = vec4(u_color, 0.125);
+          uv = a_texcoord;
+          vec2 ws = (u_surface_position + a_position * u_surface_size);
+          vec2 ndc = ws / u_screen_size * 2.0 - 1.0;
+
+          if(u_flip_y)
+            ndc.y = -ndc.y; // flip y-axis
+
+          gl_Position = vec4(ndc, 0.0, 1.0);
         }
     )";
+
+  static const char *fs = R"(
+precision mediump float;
+
+varying vec2 uv;
+uniform sampler2D u_texture;
+
+void main() {
+    vec4 color = texture2D(u_texture, uv);
+    gl_FragColor = color;
+}
+)";
 
   return create_program(vs, fs);
 }
@@ -162,8 +192,10 @@ draw_quad(GLuint program, GLuint texture) {
 
   GLuint attr_pos = glGetAttribLocation(program, "a_position");
   GL_CHECK;
+
   GLuint attr_tex = glGetAttribLocation(program, "a_texcoord");
   GL_CHECK;
+
   GLuint u_tex = glGetUniformLocation(program, "u_texture");
   GL_CHECK;
 
@@ -172,53 +204,6 @@ draw_quad(GLuint program, GLuint texture) {
   glBindTexture(GL_TEXTURE_2D, texture);
   GL_CHECK;
   glUniform1i(u_tex, 0); // texture unit 0
-  GL_CHECK;
-
-  glEnableVertexAttribArray(attr_pos);
-  GL_CHECK;
-  glEnableVertexAttribArray(attr_tex);
-  GL_CHECK;
-
-  glVertexAttribPointer(attr_pos, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(GLfloat), &vertices[0]);
-  GL_CHECK;
-  glVertexAttribPointer(attr_tex, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(GLfloat), &vertices[2]);
-  GL_CHECK;
-
-  glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-  GL_CHECK;
-
-  glDisableVertexAttribArray(attr_pos);
-  GL_CHECK;
-  glDisableVertexAttribArray(attr_tex);
-  GL_CHECK;
-}
-
-void
-draw_quad(GLuint program, float color[3]) {
-  GL_CHECK;
-
-  glUseProgram(program);
-  GL_CHECK;
-
-  static const GLfloat vertices[] = {
-    // X     Y     U     V
-    -1.0f, -1.0f, 0.0f, 0.0f, // bottom-left
-    1.0f,  -1.0f, 1.0f, 0.0f, // bottom-right
-    -1.0f, 1.0f,  0.0f, 1.0f, // top-left
-    1.0f,  1.0f,  1.0f, 1.0f  // top-right
-  };
-
-  GLuint attr_pos = glGetAttribLocation(program, "a_position");
-  GL_CHECK;
-  GLuint attr_tex = glGetAttribLocation(program, "a_texcoord");
-  GL_CHECK;
-  GLuint u_color = glGetUniformLocation(program, "u_color");
-  GL_CHECK;
-
-  glActiveTexture(GL_TEXTURE0);
-  GL_CHECK;
-
-  glUniform3fv(u_color, 1, color);
   GL_CHECK;
 
   glEnableVertexAttribArray(attr_pos);
@@ -249,10 +234,10 @@ upload_texture(barock::shm_buffer_t &buffer) {
   glBindTexture(GL_TEXTURE_2D, texture);
   GL_CHECK;
 
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
   GL_CHECK;
 
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
   GL_CHECK;
 
   glPixelStorei(GL_UNPACK_ROW_LENGTH_EXT, buffer.stride / 4);
@@ -342,11 +327,12 @@ draw_surface(barock::compositor_t                                    &compositor
 
   glUseProgram(quad_program);
 
+  // Do not flip Y UV coordinates for single surfaces
+  glUniform1f(glGetUniformLocation(program, "u_flip_y"), true);
+
   glUniform1f(glGetUniformLocation(program, "u_zoom"),
               override.and_then([](auto &opt) { return std::optional<float>(opt.zoom); })
                 .value_or(compositor.zoom));
-  GL_CHECK;
-  glUniform2f(glGetUniformLocation(program, "u_pan"), compositor.x, compositor.y);
   GL_CHECK;
   glUniform2f(
     glGetUniformLocation(program, "u_screen_size"), screen.mode.width(), screen.mode.height());
@@ -355,9 +341,6 @@ draw_surface(barock::compositor_t                                    &compositor
   GL_CHECK;
   glUniform2f(glGetUniformLocation(program, "u_surface_size"), width, height);
   GL_CHECK;
-
-  // glViewport(x, screen.mode.height() - (y + height), width, height);
-  // GL_CHECK;
 
   if (surface->state.buffer) {
     texture = upload_texture(*surface->state.buffer);
@@ -373,9 +356,6 @@ draw_surface(barock::compositor_t                                    &compositor
 
 render_subsurfaces:
 
-  // float color[3] = { 0., 0.5, 1.0 };
-  // draw_quad(debug_program, color);
-
   // Similar to the normal drawing loop, to have proper z-indices, we
   // render from back to front (0 being top-most surface)
   for (auto it = surface->state.children.rbegin(); it != surface->state.children.rend(); ++it) {
@@ -390,12 +370,160 @@ render_subsurfaces:
 }
 
 void
+draw(barock::compositor_t                                   &compositor,
+     barock::shared_t<barock::resource_t<barock::surface_t>> surface,
+     const barock::region_t                                 &screen_region,
+     int32_t                                                 parent_x,
+     int32_t                                                 parent_y,
+     std::optional<render_options>                           override = std::nullopt) {
+  // We only render surfaces that have a role attached.
+  int32_t x = parent_x, y = parent_y, width = 0, height = 0;
+  GLuint  texture = 0;
+
+  if (surface->state.buffer) {
+    auto &shm = surface->state.buffer;
+    width     = shm->width;
+    height    = shm->height;
+  }
+
+  // Window is improperly configured, likely that the client hasn't
+  // attached a buffer yet.
+  if (width <= 0 || height <= 0) {
+    // WARN("surface has no width, or height, rendering just the subsurfaces");
+    goto render_subsurfaces;
+  }
+
+  if (surface->state.buffer) {
+    glUseProgram(quad_program);
+    GL_CHECK;
+
+    texture = upload_texture(*surface->state.buffer);
+    GL_CHECK;
+
+    auto zoom = override.and_then([](auto opt) { return std::optional<float>(opt.zoom); })
+                  .value_or(compositor.zoom);
+
+    glUniform2f(glGetUniformLocation(quad_program, "u_screen_size"),
+                static_cast<float>(screen_region.w),
+                static_cast<float>(screen_region.h));
+    GL_CHECK;
+
+    glUniform2f(glGetUniformLocation(quad_program, "u_surface_size"), width, height);
+    GL_CHECK;
+
+    glUniform2f(glGetUniformLocation(quad_program, "u_surface_position"), x, y);
+    GL_CHECK;
+
+    glUniform1i(glGetUniformLocation(quad_program, "u_flip_y"), true);
+
+    draw_quad(quad_program, texture);
+    GL_CHECK;
+
+    compositor.schedule_frame_done(surface, barock::current_time_msec());
+    glDeleteTextures(1, &texture);
+    GL_CHECK;
+  }
+
+render_subsurfaces:
+  // Similar to the normal drawing loop, to have proper z-indices, we
+  // render from back to front (0 being top-most surface)
+  for (auto it = surface->state.children.rbegin(); it != surface->state.children.rend(); ++it) {
+    auto &subsurface = *it;
+    auto  surf       = subsurface->surface.lock();
+
+    int32_t child_x = x + surf->x;
+    int32_t child_y = y + surf->y;
+
+    draw(compositor, surf, screen_region, child_x, child_y);
+  }
+}
+
+// Draw a XDG surface into the FBO of the surface
+void
+draw(barock::compositor_t   &compositor,
+     barock::xdg_surface_t  &xdg_surface,
+     const barock::region_t &screen_size) {
+  auto &fbo = xdg_surface.framebuffer;
+  if (fbo.width != xdg_surface.width || fbo.height != xdg_surface.height) {
+    fbo = barock::fbo_t(xdg_surface.width, xdg_surface.height, GL_RGBA);
+  }
+
+  barock::region_t window_region{ .x = 0, .y = 0, .w = fbo.width, .h = fbo.height };
+
+  fbo.bind();
+  GL_CHECK;
+
+  // Set the viewport to be the exact window size.
+  glViewport(0, 0, window_region.w, window_region.h);
+
+  // Clear the FBO to be transparent.
+  glClearColor(0., 0., 0., 0.);
+  GL_CHECK;
+
+  glClear(GL_COLOR_BUFFER_BIT);
+  GL_CHECK;
+
+  int32_t x{}, y{};
+  // Draw our surfaces to the FBO
+  if (auto surface = xdg_surface.surface.lock(); surface) {
+    auto position = surface->position();
+    x             = position.x;
+    y             = position.y;
+
+    draw(compositor, surface, window_region, -xdg_surface.x, -xdg_surface.y);
+  }
+
+  // Use the FBO to blit onto our screen
+
+  glUseProgram(fbo_program);
+  GL_CHECK;
+
+  glUniform1f(glGetUniformLocation(fbo_program, "u_zoom"), compositor.zoom);
+  GL_CHECK;
+
+  glUniform2f(glGetUniformLocation(fbo_program, "u_screen_size"),
+              static_cast<float>(screen_size.w),
+              static_cast<float>(screen_size.h));
+  GL_CHECK;
+
+  glUniform2f(
+    glGetUniformLocation(fbo_program, "u_surface_size"), xdg_surface.width, xdg_surface.height);
+  GL_CHECK;
+
+  // Turn the workspace coordinates into screen space coordinates.
+  float screen_x = (x - compositor.x);
+  float screen_y = (y - compositor.y);
+
+  glUniform2f(glGetUniformLocation(fbo_program, "u_surface_position"), screen_x, screen_y);
+  GL_CHECK;
+
+  // Unbind the framebuffer, we now want to draw to our actual swapchain.
+  glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+  // Set the viewport to be the exact screen size.
+  glViewport(0, 0, screen_size.w, screen_size.h);
+
+  draw_quad(fbo_program, fbo.texture);
+  GL_CHECK;
+}
+
+void
 draw(barock::compositor_t                                      &compositor,
      std::vector<std::unique_ptr<minidrm::framebuffer::egl_t>> &monitors,
      GLint                                                      quad_program) {
   GLuint texture = 0;
   for (auto &screen : monitors) {
     auto front = screen->acquire();
+
+    barock::region_t screen_region{ .x = static_cast<int32_t>(compositor.x),
+                                    .y = static_cast<int32_t>(compositor.y),
+                                    .w = static_cast<int32_t>(screen->mode.width()),
+                                    .h = static_cast<int32_t>(screen->mode.height()) };
+
+    barock::region_t visible_region{ static_cast<int32_t>(screen_region.x / compositor.zoom),
+                                     static_cast<int32_t>(screen_region.y / compositor.zoom),
+                                     static_cast<int32_t>(screen_region.w / compositor.zoom),
+                                     static_cast<int32_t>(screen_region.h / compositor.zoom) };
 
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
@@ -414,15 +542,25 @@ draw(barock::compositor_t                                      &compositor,
          it != compositor.xdg_shell->windows.rend();
          ++it) {
       auto xdg_surface = *it;
-      if (auto surface = (*it)->surface.lock()) {
-        barock::region_t compositor_space{};
-        compositor_space.x = surface->x - compositor.x - xdg_surface->x;
-        compositor_space.y = surface->y - compositor.y - xdg_surface->y;
 
-        if (auto surface = xdg_surface->surface.lock()) {
-          draw_surface(
-            compositor, quad_program, surface, *screen, compositor_space.x, compositor_space.y);
+      if (auto surface = (*it)->surface.lock()) {
+        barock::region_t local_space{};
+        local_space.x = surface->x + xdg_surface->x;
+        local_space.y = surface->y + xdg_surface->y;
+        local_space.w = xdg_surface->width;
+        local_space.h = xdg_surface->height;
+
+        // Cull windows outside our panning radius.
+        if (!visible_region.intersects(local_space)) {
+          WARN("{} was culled as it is not visible.",
+               xdg_surface->get_role<barock::xdg_toplevel_t>()->data.app_id);
+          continue;
         }
+
+        if (xdg_surface->width <= 0 || xdg_surface->height <= 0)
+          continue;
+
+        draw(compositor, *xdg_surface, screen_region);
       }
     }
 
@@ -593,12 +731,6 @@ main() {
     cursor.x = std::clamp(cursor.x, compositor.x, compositor.x + 1280. / compositor.zoom);
     cursor.y = std::clamp(cursor.y, compositor.y, compositor.y + 800. / compositor.zoom);
 
-    struct {
-      double x, y;
-    } ws_cursor{ 0., 0. };
-    ws_cursor.x = cursor.x;
-    ws_cursor.y = cursor.y;
-
     // First figure out whether a surface currently has mouse focus.
     if (auto focus = compositor.pointer.focus.lock()) {
       // We have a surface that has mouse focus.
@@ -659,11 +791,11 @@ main() {
 
       // Now we compute the local offset from the origin of the
       // surface.
-      double local_x = ws_cursor.x - global_position.x, local_y = ws_cursor.y - global_position.y;
+      double local_x = cursor.x - global_position.x, local_y = cursor.y - global_position.y;
 
       // With this CSD corrected cursor position, we can now perform
       // the intersection test.
-      if (!global_position.intersects(ws_cursor.x, ws_cursor.y)) {
+      if (!global_position.intersects(cursor.x, cursor.y)) {
         // If we do not intersect, go find a new surface that the
         // mouse is over.
         compositor.pointer.set_focus(nullptr);
@@ -673,7 +805,7 @@ main() {
       // Now we can perform the recursive test against subsurfaces. To
       // account for the CSD, we add our offset onto the cursor
       // position.
-      if (auto child = focus->lookup_at(ws_cursor.x + offset.x, ws_cursor.y + offset.y)) {
+      if (auto child = focus->lookup_at(cursor.x + offset.x, cursor.y + offset.y)) {
         compositor.pointer.set_focus(
           barock::shared_cast<barock::resource_t<barock::surface_t>>(child));
         focus = child;
@@ -696,7 +828,7 @@ main() {
 
         // Check whether our cursor point intersects the surface.
         // TODO: Doesn't respect cursor hotspot yet!
-        if (position.intersects(ws_cursor.x, ws_cursor.y)) {
+        if (position.intersects(cursor.x, cursor.y)) {
           // Since we match the top window, we can now recursively
           // descent into the subsurfaces.  Should we find one that
           // matches our local coordinates, use that; otherwise focus
@@ -707,7 +839,7 @@ main() {
           // implement CSD by moving it past 0, i.e. title bar at
           // negative values.
           if (auto subsurface =
-                candidate->lookup_at(ws_cursor.x + xdg_surface->x, ws_cursor.y + xdg_surface->y)) {
+                candidate->lookup_at(cursor.x + xdg_surface->x, cursor.y + xdg_surface->y)) {
             compositor.pointer.set_focus(
               barock::shared_cast<barock::resource_t<barock::surface_t>>(subsurface));
           } else {
@@ -844,7 +976,6 @@ main() {
 
         auto &crtc = crtcs[i];
         INFO("{}\n  {}x{} @ {} Hz", con.type(), mode.width(), mode.height(), mode.refresh_rate());
-        INFO("Creating EGL framebuffer on {}", (void *)&hdl);
         auto &ref = monitors.emplace_back(new framebuffer::egl_t(hdl, con, crtc, mode, 2));
         ref->mode_set();
         break;
@@ -862,8 +993,8 @@ main() {
   wl_event_loop *loop     = wl_display_get_event_loop(display);
   static int     throttle = 0;
 
-  quad_program  = init_quad_program();
-  debug_program = init_quad_program_color();
+  quad_program = init_quad_program();
+  fbo_program  = init_fbo_program();
 
   while (1) {
     // Dispatch events (fd handlers, client requests, etc.)

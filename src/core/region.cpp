@@ -51,6 +51,13 @@ namespace barock {
     return x >= this->x && x < this->x + this->w && y >= this->y && y < this->y + this->h;
   }
 
+  bool
+  region_t::intersects(const region_t &other) const {
+    bool x_overlap = other.x < x + w && x < other.x + other.w;
+    bool y_overlap = other.y < y + h && y < other.y + other.h;
+    return x_overlap && y_overlap;
+  }
+
   region_t
   region_t::union_with(const region_t &other) const {
     int new_x1 = std::min(x, other.x);

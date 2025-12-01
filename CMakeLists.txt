@@ -19,6 +19,9 @@ set(barock_SOURCES
   src/compositor.cpp
   src/log.cpp
 
+  # rendering
+  src/fbo.cpp
+
   # util
   src/util.cpp
 
