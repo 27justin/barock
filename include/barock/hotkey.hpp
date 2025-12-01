@@ -5,7 +5,7 @@
 #include <xkbcommon/xkbcommon.h>
 
 #define MOUSE_HOTKEY_MASK (1ul << 31)
-enum { MOUSE_PRESSED = 1, MOUSE_RELEASED };
+enum { MOUSE_PRESSED = 1, MOUSE_RELEASED, MWHEEL_UP, MWHEEL_DOWN };
 
 namespace barock {
   struct key_action_t {

@@ -588,6 +588,40 @@ main() {
                             std::exit(0);
                           } });
 
+  compositor.hotkey->add({ { XKB_KEY_r }, { XKB_VMOD_NAME_ALT }, [&] {
+                            compositor.zoom = 1.0;
+                          } });
+
+  auto do_scroll = [](barock::compositor_t &compositor, double zoom_delta) {
+    double old_zoom = compositor.zoom;
+    double new_zoom = std::max(old_zoom + zoom_delta, 0.025);
+
+    // Current cursor position in workspace space
+    double cursor_ws_x = compositor.cursor.x;
+    double cursor_ws_y = compositor.cursor.y;
+
+    // Screen space position of cursor before zoom
+    double cursor_screen_x = (cursor_ws_x - compositor.x) * old_zoom;
+    double cursor_screen_y = (cursor_ws_y - compositor.y) * old_zoom;
+
+    compositor.zoom = new_zoom;
+
+    // Adjust camera so that the cursor stays at same screen
+    // position
+    compositor.x = cursor_ws_x - cursor_screen_x / new_zoom;
+    compositor.y = cursor_ws_y - cursor_screen_y / new_zoom;
+
+    return;
+  };
+
+  compositor.hotkey->add({ { MOUSE_HOTKEY_MASK | MWHEEL_DOWN }, { XKB_VMOD_NAME_ALT }, [&] {
+                            do_scroll(compositor, -0.02);
+                          } });
+
+  compositor.hotkey->add({ { MOUSE_HOTKEY_MASK | MWHEEL_UP }, { XKB_VMOD_NAME_ALT }, [&] {
+                            do_scroll(compositor, 0.02);
+                          } });
+
   compositor.input->on_keyboard_input.connect([&](const barock::keyboard_event_t &key) {
     uint32_t scancode  = libinput_event_keyboard_get_key(key.keyboard);
     uint32_t key_state = libinput_event_keyboard_get_key_state(key.keyboard);
@@ -876,27 +910,12 @@ main() {
   });
 
   compositor.input->on_mouse_scroll.connect([&compositor](auto ev) {
-    if (compositor.keychord) {
-      double zoom_delta = (ev.vertical / 120.0) * -0.02;
-      double old_zoom   = compositor.zoom;
-      double new_zoom   = std::max(old_zoom + zoom_delta, 0.025);
-
-      // Current cursor position in workspace space
-      double cursor_ws_x = compositor.cursor.x;
-      double cursor_ws_y = compositor.cursor.y;
-
-      // Screen space position of cursor before zoom
-      double cursor_screen_x = (cursor_ws_x - compositor.x) * old_zoom;
-      double cursor_screen_y = (cursor_ws_y - compositor.y) * old_zoom;
-
-      compositor.zoom = new_zoom;
-
-      // Adjust camera so that the cursor stays at same screen
-      // position
-      compositor.x = cursor_ws_x - cursor_screen_x / new_zoom;
-      compositor.y = cursor_ws_y - cursor_screen_y / new_zoom;
-
-      return;
+    if (ev.vertical > 0.0) {
+      if (compositor.hotkey->feed(MOUSE_HOTKEY_MASK | MWHEEL_DOWN))
+        return;
+    } else if (ev.vertical < 0.0) {
+      if (compositor.hotkey->feed(MOUSE_HOTKEY_MASK | MWHEEL_UP))
+        return;
     }
 
     if (auto surface = compositor.pointer.focus.lock(); surface) {
