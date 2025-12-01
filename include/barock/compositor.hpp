@@ -25,6 +25,7 @@ namespace barock {
   struct wl_seat_t;
   struct wl_data_device_manager_t;
   struct wl_output_t;
+  struct hotkey_t;
 
   class compositor_t {
     private:
@@ -47,6 +48,7 @@ namespace barock {
     std::unique_ptr<wl_seat_t>                wl_seat;
     std::unique_ptr<wl_data_device_manager_t> wl_data_device_manager;
     std::unique_ptr<wl_output_t>              wl_output;
+    std::unique_ptr<hotkey_t>                 hotkey;
 
     struct {
       double x;

@@ -10,6 +10,7 @@
 #include "barock/core/wl_output.hpp"
 #include "barock/core/wl_seat.hpp"
 #include "barock/core/wl_subcompositor.hpp"
+#include "barock/hotkey.hpp"
 
 #include "barock/dmabuf/dmabuf.hpp"
 #include "barock/input.hpp"
@@ -74,6 +75,10 @@ namespace barock {
     wl_seat                = make_unique<wl_seat_t>(*this);
     wl_data_device_manager = make_unique<wl_data_device_manager_t>(*this);
     wl_output              = make_unique<wl_output_t>(*this);
+
+    hotkey         = make_unique<hotkey_t>();
+    hotkey->state  = keyboard.xkb.state;
+    hotkey->keymap = keyboard.xkb.keymap;
 
     cursor.x = 0.;
     cursor.y = 0.;

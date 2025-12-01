@@ -27,6 +27,7 @@ set(barock_SOURCES
 
   # input
   src/input.cpp
+  src/hotkey.cpp
 
   # drm
   src/drm/minidrm.cpp

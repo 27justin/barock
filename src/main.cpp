@@ -7,6 +7,8 @@
 #include <memory>
 #include <signal.h>
 #include <sys/ioctl.h>
+#include <xkbcommon/xkbcommon-keysyms.h>
+#include <xkbcommon/xkbcommon-names.h>
 #include <xkbcommon/xkbcommon.h>
 
 #include <cstdlib>
@@ -25,6 +27,7 @@
 #include "barock/core/wl_compositor.hpp"
 #include "barock/core/wl_seat.hpp"
 #include "barock/fbo.hpp"
+#include "barock/hotkey.hpp"
 #include "barock/input.hpp"
 #include "barock/resource.hpp"
 #include "barock/shell/xdg_toplevel.hpp"
@@ -296,80 +299,6 @@ struct render_options {
 };
 
 void
-draw_surface(barock::compositor_t                                    &compositor,
-             GLuint                                                   program,
-             barock::shared_t<barock::resource_t<barock::surface_t>> &surface,
-             minidrm::framebuffer::egl_t                             &screen,
-             int32_t                                                  parent_x,
-             int32_t                                                  parent_y,
-             std::optional<render_options>                            override = std::nullopt) {
-  // We only render surfaces that have a role attached.
-  int32_t x = parent_x, y = parent_y, width = 0, height = 0;
-  GLuint  texture = 0;
-
-  // Check the role, we have to render different things accordingly
-  barock::region_t bounds = surface->extent();
-  x += bounds.x;
-  y += bounds.y;
-
-  if (surface->state.buffer) {
-    auto &shm = surface->state.buffer;
-    width     = shm->width;
-    height    = shm->height;
-  }
-
-  // Window is improperly configured, likely that the client hasn't
-  // attached a buffer yet.
-  if (width <= 0 || height <= 0) {
-    // WARN("surface has no width, or height, rendering just the subsurfaces");
-    goto render_subsurfaces;
-  }
-
-  glUseProgram(quad_program);
-
-  // Do not flip Y UV coordinates for single surfaces
-  glUniform1f(glGetUniformLocation(program, "u_flip_y"), true);
-
-  glUniform1f(glGetUniformLocation(program, "u_zoom"),
-              override.and_then([](auto &opt) { return std::optional<float>(opt.zoom); })
-                .value_or(compositor.zoom));
-  GL_CHECK;
-  glUniform2f(
-    glGetUniformLocation(program, "u_screen_size"), screen.mode.width(), screen.mode.height());
-  GL_CHECK;
-  glUniform2f(glGetUniformLocation(program, "u_surface_position"), x, y);
-  GL_CHECK;
-  glUniform2f(glGetUniformLocation(program, "u_surface_size"), width, height);
-  GL_CHECK;
-
-  if (surface->state.buffer) {
-    texture = upload_texture(*surface->state.buffer);
-    GL_CHECK;
-
-    draw_quad(program, texture);
-    GL_CHECK;
-
-    compositor.schedule_frame_done(surface, barock::current_time_msec());
-    glDeleteTextures(1, &texture);
-    GL_CHECK;
-  }
-
-render_subsurfaces:
-
-  // Similar to the normal drawing loop, to have proper z-indices, we
-  // render from back to front (0 being top-most surface)
-  for (auto it = surface->state.children.rbegin(); it != surface->state.children.rend(); ++it) {
-    auto &subsurface = *it;
-    auto  surf       = subsurface->surface.lock();
-
-    int32_t child_x = x + surf->x;
-    int32_t child_y = y + surf->y;
-
-    draw_surface(compositor, program, surf, screen, child_x, child_y);
-  }
-}
-
-void
 draw(barock::compositor_t                                   &compositor,
      barock::shared_t<barock::resource_t<barock::surface_t>> surface,
      const barock::region_t                                 &screen_region,
@@ -569,13 +498,12 @@ draw(barock::compositor_t                                      &compositor,
       double screen_cursor_x = (compositor.cursor.x - compositor.x) * compositor.zoom;
       double screen_cursor_y = (compositor.cursor.y - compositor.y) * compositor.zoom;
 
-      draw_surface(compositor,
-                   quad_program,
-                   pointer,
-                   *screen,
-                   screen_cursor_x - compositor.cursor.hotspot.x,
-                   screen_cursor_y - compositor.cursor.hotspot.y,
-                   render_options{ .zoom = 1.0 });
+      draw(compositor,
+           pointer,
+           screen_region,
+           screen_cursor_x - compositor.cursor.hotspot.x,
+           screen_cursor_y - compositor.cursor.hotspot.y,
+           render_options{ .zoom = 1.0 });
     } else {
       glEnable(GL_SCISSOR_TEST);
       glScissor(
@@ -610,27 +538,68 @@ main() {
   compositor.y        = 0.0;
   compositor.keychord = false;
 
+  compositor.hotkey->add({
+    { XKB_KEY_Shift_L, XKB_KEY_C },
+    { XKB_VMOD_NAME_ALT },
+    [&] {
+      if (auto pointer_surface = compositor.pointer.focus.lock(); pointer_surface) {
+        barock::shared_t<barock::resource_t<barock::surface_t>> surface = pointer_surface;
+        if (!surface->has_role() ||
+            (surface->has_role() && surface->role->type_id() != barock::xdg_surface_t::id())) {
+          surface = pointer_surface->find_parent([](auto &surface) {
+            return surface->role && surface->role->type_id() == barock::xdg_surface_t::id();
+          });
+        }
+
+        // Get its position
+        auto position = surface->position();
+        auto size     = surface->full_extent();
+
+        double center_x = position.x + size.w / 2.;
+        double center_y = position.y + size.h / 2.;
+
+        compositor.x = center_x - 1280. / 2.;
+        compositor.y = center_y - 800. / 2.;
+      }
+     }
+  });
+
+  compositor.hotkey->add({
+    { MOUSE_PRESSED | MOUSE_HOTKEY_MASK, BTN_LEFT },
+    { XKB_VMOD_NAME_ALT },
+    [&]() {
+      compositor.move_global_workspace = true;
+     }
+  });
+
+  compositor.hotkey->add({
+    { MOUSE_RELEASED | MOUSE_HOTKEY_MASK, BTN_LEFT },
+    { XKB_VMOD_NAME_ALT },
+    [&]() {
+      compositor.move_global_workspace = false;
+     }
+  });
+
+  compositor.hotkey->add({ { XKB_KEY_Return }, { XKB_VMOD_NAME_ALT }, [&]() {
+                            run_command("foot");
+                          } });
+
+  compositor.hotkey->add({ { XKB_KEY_Escape }, {}, [] {
+                            std::exit(0);
+                          } });
+
   compositor.input->on_keyboard_input.connect([&](const barock::keyboard_event_t &key) {
     uint32_t scancode  = libinput_event_keyboard_get_key(key.keyboard);
     uint32_t key_state = libinput_event_keyboard_get_key_state(key.keyboard);
 
-    if (scancode == KEY_ESC) {
-      std::exit(0);
-    }
-
-    if (scancode == KEY_LEFTMETA || scancode == KEY_LEFTALT) {
-      if (key_state == LIBINPUT_KEY_STATE_PRESSED) {
-        compositor.keychord = true;
-        return;
-      } else {
-        compositor.keychord = false;
-        return;
-      }
-    }
-
     xkb_state_update_key(compositor.keyboard.xkb.state,
                          scancode + 8, // +8: evdev -> xkb
                          key_state == LIBINPUT_KEY_STATE_PRESSED ? XKB_KEY_DOWN : XKB_KEY_UP);
+
+    xkb_keysym_t sym = xkb_state_key_get_one_sym(compositor.keyboard.xkb.state, scancode + 8);
+    if (key_state == LIBINPUT_KEY_STATE_PRESSED && compositor.hotkey->feed(sym)) {
+      return;
+    }
 
     if (auto surface = compositor.keyboard.focus.lock(); surface) {
       xkb_mod_mask_t depressed =
@@ -646,12 +615,6 @@ main() {
       compositor.keyboard.send_modifiers(surface, depressed, latched, locked, group);
       compositor.keyboard.send_key(surface, scancode, key_state);
       return;
-    }
-
-    if (scancode == KEY_ENTER && key_state == LIBINPUT_KEY_STATE_RELEASED) {
-      WARN("Starting terminal");
-      // run_command("WAYLAND_DISPLAY=wayland-0 alacritty");
-      run_command("foot");
     }
   });
 
@@ -854,14 +817,11 @@ main() {
   compositor.input->on_mouse_button.connect([&](const auto &btn) {
     auto &cursor = compositor.cursor;
 
-    if (compositor.keychord) {
-      if (btn.button == BTN_LEFT) {
-        if (btn.state == barock::mouse_button_t::pressed) {
-          compositor.move_global_workspace = true;
-        } else {
-          compositor.move_global_workspace = false;
-        }
-      }
+    auto mouse_designator = btn.state == barock::mouse_button_t::pressed
+                            ? MOUSE_PRESSED | MOUSE_HOTKEY_MASK
+                            : MOUSE_RELEASED | MOUSE_HOTKEY_MASK;
+    compositor.hotkey->feed(mouse_designator);
+    if (compositor.hotkey->feed(btn.button)) {
       return;
     }
 
