@@ -1,10 +1,12 @@
 #include <GLES2/gl2.h>
 #include <GLES2/gl2ext.h>
+#include <cassert>
 #include <iostream>
 #include <libudev.h>
 #include <linux/kd.h>
 #include <linux/vt.h>
 #include <memory>
+#include <optional>
 #include <signal.h>
 #include <sys/ioctl.h>
 #include <xkbcommon/xkbcommon-keysyms.h>
@@ -22,6 +24,7 @@
 #include <unistd.h>
 
 #include "barock/compositor.hpp"
+#include "barock/core/region.hpp"
 #include "barock/core/shm_pool.hpp"
 #include "barock/core/surface.hpp"
 #include "barock/core/wl_compositor.hpp"
@@ -204,6 +207,7 @@ draw_quad(GLuint program, GLuint texture) {
 
   glActiveTexture(GL_TEXTURE0);
   GL_CHECK;
+
   glBindTexture(GL_TEXTURE_2D, texture);
   GL_CHECK;
   glUniform1i(u_tex, 0); // texture unit 0
@@ -315,6 +319,10 @@ draw(barock::compositor_t                                   &compositor,
     height    = shm->height;
   }
 
+  auto position = surface->position();
+  position.w    = width;
+  position.h    = height;
+
   // Window is improperly configured, likely that the client hasn't
   // attached a buffer yet.
   if (width <= 0 || height <= 0) {
@@ -346,7 +354,6 @@ draw(barock::compositor_t                                   &compositor,
     glUniform1i(glGetUniformLocation(quad_program, "u_flip_y"), true);
 
     draw_quad(quad_program, texture);
-    GL_CHECK;
 
     compositor.schedule_frame_done(surface, barock::current_time_msec());
     glDeleteTextures(1, &texture);
@@ -372,18 +379,17 @@ void
 draw(barock::compositor_t   &compositor,
      barock::xdg_surface_t  &xdg_surface,
      const barock::region_t &screen_size) {
+
   auto &fbo = xdg_surface.framebuffer;
   if (fbo.width != xdg_surface.width || fbo.height != xdg_surface.height) {
     fbo = barock::fbo_t(xdg_surface.width, xdg_surface.height, GL_RGBA);
   }
 
-  barock::region_t window_region{ .x = 0, .y = 0, .w = fbo.width, .h = fbo.height };
-
   fbo.bind();
-  GL_CHECK;
+  barock::region_t window_region = { .x = 0, .y = 0, .w = fbo.width, .h = fbo.height };
 
   // Set the viewport to be the exact window size.
-  glViewport(0, 0, window_region.w, window_region.h);
+  glViewport(0, 0, fbo.width, fbo.height);
 
   // Clear the FBO to be transparent.
   glClearColor(0., 0., 0., 0.);
@@ -442,8 +448,6 @@ draw(barock::compositor_t                                      &compositor,
      GLint                                                      quad_program) {
   GLuint texture = 0;
   for (auto &screen : monitors) {
-    auto front = screen->acquire();
-
     barock::region_t screen_region{ .x = static_cast<int32_t>(compositor.x),
                                     .y = static_cast<int32_t>(compositor.y),
                                     .w = static_cast<int32_t>(screen->mode.width()),
@@ -454,10 +458,27 @@ draw(barock::compositor_t                                      &compositor,
                                      static_cast<int32_t>(screen_region.w / compositor.zoom),
                                      static_cast<int32_t>(screen_region.h / compositor.zoom) };
 
+    // Check if our current region isn't stale, i.e. no window changed, then we can skip rendering
+    if (compositor.damage.stale(visible_region) == false) {
+      continue;
+    }
+
+    // Grab the back buffer
+    auto front = screen->acquire();
+
+    // Enable blending
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
+    // Set our viewport
     glViewport(0, 0, screen->mode.width(), screen->mode.height());
+
+    // Clear the buffer with our color
+    //
+    // TODO: We currently only do "dumb" damage tracking, re-rendering
+    // everything inside a damage region, this includes re-rendering
+    // our background and generally having to clear the buffer,
+    // unfortunately.
     glClearColor(0.08f, 0.08f, 0.10f, 1.f);
     glClear(GL_COLOR_BUFFER_BIT);
 
@@ -514,6 +535,16 @@ draw(barock::compositor_t                                      &compositor,
       GL_CHECK;
     }
 
+    // Remove damage regions that are visible in our frustum
+    std::unique_lock lk(compositor.damage.mutex);
+    for (auto it = compositor.damage.regions.begin(); it != compositor.damage.regions.end();) {
+      if (visible_region.intersects(*it)) {
+        it = compositor.damage.regions.erase(it);
+      } else {
+        ++it;
+      }
+    }
+
     screen->present(front);
     GL_CHECK;
   }
@@ -533,10 +564,9 @@ main() {
   auto hdl  = card.open();
 
   barock::compositor_t compositor(hdl, getenv("XDG_SEAT"));
-  compositor.zoom     = 1.0;
-  compositor.x        = 0.0;
-  compositor.y        = 0.0;
-  compositor.keychord = false;
+  compositor.zoom = 1.0;
+  compositor.x    = 0.0;
+  compositor.y    = 0.0;
 
   compositor.hotkey->add({
     { XKB_KEY_Shift_L, XKB_KEY_C },
@@ -558,8 +588,8 @@ main() {
         double center_x = position.x + size.w / 2.;
         double center_y = position.y + size.h / 2.;
 
-        compositor.x = center_x - 1280. / 2.;
-        compositor.y = center_y - 800. / 2.;
+        compositor.x = center_x - (1280. / compositor.zoom) / 2.;
+        compositor.y = center_y - (800. / compositor.zoom) / 2.;
       }
      }
   });
@@ -721,12 +751,20 @@ main() {
       // Negate the cursor movement, to make it static during panning.
       cursor.x -= dx;
       cursor.y -= dy;
+
+      // Mark the new visible region as damaged to force a redraw.
+      compositor.damage.add(
+        { compositor.x, compositor.y, 1280. / compositor.zoom, 800. / compositor.zoom });
       return;
     }
 
     // Clamp to active monitor
-    cursor.x = std::clamp(cursor.x, compositor.x, compositor.x + 1280. / compositor.zoom);
-    cursor.y = std::clamp(cursor.y, compositor.y, compositor.y + 800. / compositor.zoom);
+    cursor.x = std::clamp(cursor.x, compositor.x, (compositor.x + 1280. / compositor.zoom) - 1);
+    cursor.y = std::clamp(cursor.y, compositor.y, (compositor.y + 800. / compositor.zoom) - 1);
+
+    // Add a damage region for our new cursor location
+    compositor.damage.add(
+      barock::region_t{ static_cast<int32_t>(cursor.x), static_cast<int32_t>(cursor.y), 32, 32 });
 
     // First figure out whether a surface currently has mouse focus.
     if (auto focus = compositor.pointer.focus.lock()) {

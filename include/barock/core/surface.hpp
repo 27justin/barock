@@ -7,6 +7,7 @@
 #include "wl/wayland-protocol.h"
 
 #include <cstdint>
+#include <optional>
 #include <vector>
 
 extern struct wl_surface_interface wl_surface_impl;
@@ -45,7 +46,7 @@ namespace barock {
   struct surface_state_t {
     region_t                           opaque;
     region_t                           input;
-    region_t                           damage;
+    std::optional<region_t>            damage;
     shared_t<resource_t<shm_buffer_t>> buffer;
     int32_t                            transform;
     int32_t                            scale;

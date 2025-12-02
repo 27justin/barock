@@ -9,6 +9,7 @@
 #include <memory>
 #include <mutex>
 #include <queue>
+#include <shared_mutex>
 
 struct xkb_context;
 struct xkb_keymap;
@@ -26,6 +27,7 @@ namespace barock {
   struct wl_data_device_manager_t;
   struct wl_output_t;
   struct hotkey_t;
+  struct region_t;
 
   class compositor_t {
     private:
@@ -34,6 +36,8 @@ namespace barock {
     std::mutex                                                       frame_updates_lock;
     std::queue<std::pair<shared_t<resource_t<surface_t>>, uint32_t>> frame_updates;
     wl_event_source                                                 *frame_event_source;
+
+    std::vector<region_t> damage_regions;
 
     public:
     minidrm::drm::handle_t drm_handle;
@@ -146,6 +150,24 @@ namespace barock {
 
     static int
     frame_done_flush_callback(void *);
+
+    struct _damage {
+      std::vector<region_t>     regions;
+      mutable std::shared_mutex mutex;
+
+      void
+      add(const barock::region_t &region);
+
+      bool
+      stale(const barock::region_t &region) const;
+
+      bool
+      stale(const surface_t &surface) const;
+
+      std::vector<region_t>
+      intersections(const surface_t &surface) const;
+
+    } damage;
   };
 
 };

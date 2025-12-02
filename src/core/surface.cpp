@@ -1,4 +1,5 @@
 #include "barock/compositor.hpp"
+#include "barock/core/region.hpp"
 #include "barock/resource.hpp"
 
 #include "barock/core/shm_pool.hpp"
@@ -10,6 +11,7 @@
 #include "barock/shell/xdg_wm_base.hpp"
 
 #include "../log.hpp"
+#include <optional>
 #include <wayland-server-core.h>
 #include <wayland-server-protocol.h>
 
@@ -143,7 +145,8 @@ wl_surface_damage(wl_client   *client,
                   int32_t      width,
                   int32_t      height) {
   auto surface = from_wl_resource<surface_t>(wl_surface);
-  surface->staging.damage += barock::region_t{ x, y, width, height };
+  // surface->staging.damage += barock::region_t{ x, y, width, height };
+  WARN("Legacy damage, skipping this");
 }
 
 void
@@ -155,7 +158,12 @@ wl_surface_damage_buffer(wl_client   *client,
                          int32_t      height) {
   // TODO: Figure out the coordinate difference between `damage` and `damage_buffer`
   auto surface = from_wl_resource<surface_t>(wl_surface);
-  surface->staging.damage += barock::region_t{ x, y, width, height };
+
+  if (!surface->staging.damage)
+    surface->staging.damage = barock::region_t{ x, y, width, height };
+  else
+    surface->staging.damage =
+      surface->staging.damage->union_with(barock::region_t{ x, y, width, height });
 }
 
 void
@@ -172,7 +180,34 @@ wl_surface_commit(wl_client *client, wl_resource *wl_surface) {
     surface->on_buffer_attach.emit(*surface->state.buffer);
   }
 
-  surface->staging = barock::surface_state_t{ // Copy our subsurfaces, those are persistent
+  // If we have damage...
+  if (surface->state.damage) {
+    // Turn the local damage region into a screen space damage region
+    region_t damage   = *surface->state.damage;
+    auto     position = surface->position();
+
+    // Transform into workspace local region
+    position.x += damage.x;
+    position.y += damage.y;
+    position.w = damage.w;
+    position.h = damage.h;
+
+    // TODO: Manually hard-coded logical XDG surface offset of our
+    // surface T_T, surfaces /shouldn't/, have to know about their
+    // actual implementation, and yet, we have to account for this offset.
+    //
+    // Ideally, we should check for the role within an overload for
+    // `damage.add`, later on.
+    position.x -= -5;
+    position.y -= -26;
+
+    surface->compositor->damage.add(position);
+  }
+
+  surface->staging = barock::surface_state_t{ // By default, our surface has no pending damage.
+                                              .damage = std::nullopt,
+
+                                              // Copy our subsurfaces, those are persistent
                                               .subsurface = surface->state.subsurface,
                                               .children   = surface->state.children
   };

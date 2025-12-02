@@ -53,8 +53,10 @@ namespace barock {
 
   bool
   region_t::intersects(const region_t &other) const {
-    bool x_overlap = other.x < x + w && x < other.x + other.w;
-    bool y_overlap = other.y < y + h && y < other.y + other.h;
+    bool x_overlap = (x >= other.x && x < other.x + other.w) || (other.x >= x && other.x < x + w);
+
+    bool y_overlap = (y >= other.y && y < other.y + other.h) || (other.y >= y && other.y < y + h);
+
     return x_overlap && y_overlap;
   }
 

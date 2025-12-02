@@ -50,6 +50,10 @@ wl_compositor_create_surface(wl_client *client, wl_resource *wl_compositor, uint
 
   surface->compositor = &compositor->compositor;
   surface->role       = nullptr;
+
+  // Infinite damage to force redraw.
+  surface->state.damage   = region_t::infinite;
+  surface->staging.damage = region_t::infinite;
 }
 
 void
