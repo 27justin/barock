@@ -1,5 +1,6 @@
 #pragma once
 
+#include "barock/core/point.hpp"
 #include "barock/core/region.hpp"
 #include "barock/core/signal.hpp"
 #include "barock/core/wl_subcompositor.hpp"
@@ -50,6 +51,7 @@ namespace barock {
     shared_t<resource_t<shm_buffer_t>> buffer;
     int32_t                            transform;
     int32_t                            scale;
+    wl_resource                       *pending;
     struct {
       int32_t x, y;
     } offset;
@@ -59,20 +61,6 @@ namespace barock {
   };
 
   struct surface_t {
-    compositor_t *compositor;
-
-    wl_resource *frame_callback, *wl_surface;
-
-    surface_state_t state,
-      staging; // Surface state is double buffered
-
-    weak_t<surface_t> parent;
-    int32_t           x{}, y{};
-
-    shared_t<base_surface_role_t> role;
-
-    signal_t<shm_buffer_t &> on_buffer_attach;
-
     /// Create an empty surface with nothing associated.
     surface_t();
 
@@ -83,40 +71,27 @@ namespace barock {
     // duplicatable by nature.
     surface_t(const surface_t &) = delete;
 
+    surface_state_t state,
+      staging; // Surface state is double buffered
+
+    base_surface_role_t *role;
+
+    struct {
+      signal_t<shm_buffer_t &> on_buffer_attach;
+    } events;
+
     void
     operator=(const surface_t &) = delete;
-
-    region_t
-    extent() const;
 
     /**
      * @brief Compute the full extent of a surface by recursively adding up buffer sizes.
      * The returned region encompasses a region that the entire tree of surfaces takes up.
      */
-    region_t
+    fpoint_t
     full_extent() const;
-
-    region_t
-    position() const;
-
-    /**
-     * @brief Lookup a subsurface at the given coordinates, returns a
-     * empty `nullptr` shared when none found, or out of bounds.
-     *
-     * @param x Horizontal position relative to the surface.
-     * @param y Vertical position relative to the surface.
-     */
-    shared_t<surface_t>
-    lookup_at(double x, double y);
 
     bool
     has_role() const;
-
-    shared_t<surface_t>
-    find_parent(const std::function<bool(shared_t<surface_t> &)> &) const;
-
-    shared_t<surface_t>
-    find_child(const std::function<bool(shared_t<surface_t> &)> &) const;
   };
 
 };

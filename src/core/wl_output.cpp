@@ -31,10 +31,20 @@ barock::wl_output_t::bind(wl_client *client, void *ud, uint32_t version, uint32_
     if (conn.connection() != DRM_MODE_CONNECTED)
       continue;
 
-    wl_output_send_geometry(output, 0, 0, 0, 0, WL_OUTPUT_SUBPIXEL_UNKNOWN, "Virtual", "Monitor",
+    wl_output_send_geometry(output,
+                            0,
+                            0,
+                            0,
+                            0,
+                            WL_OUTPUT_SUBPIXEL_UNKNOWN,
+                            "Virtual",
+                            "Monitor",
                             WL_OUTPUT_TRANSFORM_NORMAL);
-    wl_output_send_mode(output, WL_OUTPUT_MODE_PREFERRED, conn.modes().front().width(),
-                        conn.modes().front().height(), conn.modes().front().refresh_rate());
+    wl_output_send_mode(output,
+                        WL_OUTPUT_MODE_PREFERRED,
+                        conn.modes().front().width(),
+                        conn.modes().front().height(),
+                        conn.modes().front().refresh_rate());
     wl_output_send_done(output);
   }
 }

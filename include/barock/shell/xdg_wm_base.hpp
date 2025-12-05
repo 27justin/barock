@@ -1,6 +1,7 @@
 #pragma once
 
 #include "barock/compositor.hpp"
+#include "barock/core/point.hpp"
 #include "barock/core/surface.hpp"
 #include "barock/fbo.hpp"
 #include "barock/resource.hpp"
@@ -25,11 +26,14 @@ namespace barock {
     xdg_role_t                role;
     shared_t<xdg_base_role_t> role_impl;
 
-    int32_t x, y, width, height;
+    fpoint_t offset;   ///< Logical offset (CSD, etc.), that has to be
+                       ///< accounted for.
 
-    signal_t<void> on_geometry_change;
+    region_t position; ///< Position & size of the surface
 
-    fbo_t framebuffer;
+    struct {
+      signal_t<void> on_geometry_change;
+    } events;
 
     ~xdg_surface_t();
     xdg_surface_t(xdg_shell_t &parent, shared_t<resource_t<surface_t>> base);

@@ -12,5 +12,6 @@ struct zwp_linux_buffer_params_v1_interface linux_buffer_params_impl = {
      uint32_t            stride,
      uint32_t            modifier_hi,
      uint32_t modifier_lo) { WARN("zwp_linux_buffer_params_v1::add - not implemented!"); },
-  nullptr, nullptr
+  nullptr,
+  nullptr
 };

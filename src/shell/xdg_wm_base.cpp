@@ -52,8 +52,8 @@ namespace barock {
         auto     toplevel = shared_cast<resource_t<xdg_toplevel_t>>(xdg_surface->role_impl);
         wl_array state;
         wl_array_init(&state);
-        xdg_toplevel_send_configure(toplevel->resource(), xdg_surface->width, xdg_surface->height,
-                                    &state);
+        xdg_toplevel_send_configure(
+          toplevel->resource(), xdg_surface->width, xdg_surface->height, &state);
         wl_array_release(&state);
         break;
       }
@@ -92,8 +92,8 @@ namespace barock {
         wl_array_init(&state);
         void *p                    = wl_array_add(&state, sizeof(xdg_toplevel_state));
         *((xdg_toplevel_state *)p) = XDG_TOPLEVEL_STATE_ACTIVATED;
-        xdg_toplevel_send_configure(toplevel->resource(), xdg_surface->width, xdg_surface->height,
-                                    &state);
+        xdg_toplevel_send_configure(
+          toplevel->resource(), xdg_surface->width, xdg_surface->height, &state);
         wl_array_release(&state);
         break;
       }
@@ -125,10 +125,14 @@ xdg_wm_base_get_xdg_surface(wl_client   *client,
 
   shared_t<resource_t<surface_t>> surface = from_wl_resource<surface_t>(wl_surface);
 
-  auto xdg_surface =
-    make_resource<xdg_surface_t>(client, xdg_surface_interface, xdg_surface_impl,
-                                 wl_resource_get_version(xdg_wm_base), id, *shell, surface);
-  surface->role = xdg_surface;
+  auto xdg_surface = make_resource<xdg_surface_t>(client,
+                                                  xdg_surface_interface,
+                                                  xdg_surface_impl,
+                                                  wl_resource_get_version(xdg_wm_base),
+                                                  id,
+                                                  *shell,
+                                                  surface);
+  surface->role    = xdg_surface;
 
   // Insert at the beginning, this will be the last rendered surface
   // (thus the top-most one.)

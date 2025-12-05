@@ -1,8 +1,11 @@
 #pragma once
 
+#include "barock/core/input.hpp"
 #include <functional>
 #include <vector>
 #include <xkbcommon/xkbcommon.h>
+
+#include <janet.h>
 
 #define MOUSE_HOTKEY_MASK (1ul << 31)
 enum { MOUSE_PRESSED = 1, MOUSE_RELEASED, MWHEEL_UP, MWHEEL_DOWN };
@@ -27,10 +30,16 @@ namespace barock {
     xkb_keymap *keymap;
     xkb_state  *state;
 
+    hotkey_t(input_manager_t &input);
+
     bool
     feed(xkb_keysym_t symbol);
+
     void
     add(const action_t &action);
+
+    void
+    on_keyboard_input(keyboard_event_t, input_manager_t &);
   };
 
 }

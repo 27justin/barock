@@ -4,12 +4,13 @@
 #include <wayland-server.h>
 
 #include "../drm/minidrm.hpp"
+
 #include "resource.hpp"
 
-#include <memory>
-#include <mutex>
-#include <queue>
-#include <shared_mutex>
+// output_t
+#include "barock/core/output.hpp"
+
+#include <janet.h>
 
 struct xkb_context;
 struct xkb_keymap;
@@ -29,115 +30,114 @@ namespace barock {
   struct hotkey_t;
   struct region_t;
 
+  // Forward declaratios
+  class event_loop_t;
+  class input_manager_t;
+  class cursor_manager_t;
+  class output_manager_t;
+
   class compositor_t {
     private:
     wl_display *display_;
 
-    std::mutex                                                       frame_updates_lock;
-    std::queue<std::pair<shared_t<resource_t<surface_t>>, uint32_t>> frame_updates;
-    wl_event_source                                                 *frame_event_source;
-
-    std::vector<region_t> damage_regions;
-
     public:
     minidrm::drm::handle_t drm_handle;
 
-    wl_event_loop                            *event_loop_;
-    std::unique_ptr<xdg_shell_t>              xdg_shell;
-    std::unique_ptr<wl_compositor_t>          wl_compositor;
-    std::unique_ptr<shm_t>                    shm;
-    std::unique_ptr<dmabuf_t>                 dmabuf;
-    std::unique_ptr<input_t>                  input;
-    std::unique_ptr<wl_subcompositor_t>       wl_subcompositor;
-    std::unique_ptr<wl_seat_t>                wl_seat;
-    std::unique_ptr<wl_data_device_manager_t> wl_data_device_manager;
-    std::unique_ptr<wl_output_t>              wl_output;
-    std::unique_ptr<hotkey_t>                 hotkey;
+    wl_event_loop *event_loop_;
+    // std::unique_ptr<xdg_shell_t>              xdg_shell;
+    // std::unique_ptr<wl_compositor_t>          wl_compositor;
+    // std::unique_ptr<shm_t>                    shm;
+    // std::unique_ptr<dmabuf_t>                 dmabuf;
+    // std::unique_ptr<input_t>                  input;
+    // std::unique_ptr<wl_subcompositor_t>       wl_subcompositor;
+    // std::unique_ptr<wl_seat_t>                wl_seat;
+    // std::unique_ptr<wl_data_device_manager_t> wl_data_device_manager;
+    // std::unique_ptr<wl_output_t>              wl_output;
 
-    struct {
-      double x;
-      double y;
-      struct {
-        int32_t x, y;
-      } hotspot;
-      weak_t<resource_t<surface_t>> surface;
-    } cursor;
+    JanetTable *context_;
 
-    struct _pointer {
-      public:
-      compositor_t                 *root;
-      weak_t<resource_t<surface_t>> focus{};
+    std::unique_ptr<event_loop_t>     event_loop;
+    std::unique_ptr<input_manager_t>  input;
+    std::unique_ptr<cursor_manager_t> cursor;
+    std::unique_ptr<output_manager_t> output;
+    std::unique_ptr<wl_compositor_t>  wl_compositor;
+    std::unique_ptr<hotkey_t>         hotkey;
 
-      void
-      send_enter(shared_t<resource_t<surface_t>> &);
+    // struct _pointer {
+    //   public:
+    //   compositor_t                 *root;
+    //   weak_t<resource_t<surface_t>> focus{};
 
-      void
-      send_button(shared_t<resource_t<surface_t>> &, uint32_t, uint32_t);
+    //   void
+    //   send_enter(shared_t<resource_t<surface_t>> &);
 
-      void
-      send_motion(shared_t<resource_t<surface_t>> &);
+    //   void
+    //   send_button(shared_t<resource_t<surface_t>> &, uint32_t, uint32_t);
 
-      void
-      send_motion(shared_t<resource_t<surface_t>> &, double, double);
+    //   void
+    //   send_motion(shared_t<resource_t<surface_t>> &);
 
-      void
-      send_axis(shared_t<resource_t<surface_t>> &, int, double);
+    //   void
+    //   send_motion(shared_t<resource_t<surface_t>> &, double, double);
 
-      void
-      send_leave(shared_t<resource_t<surface_t>> &);
+    //   void
+    //   send_axis(shared_t<resource_t<surface_t>> &, int, double);
 
-      /// Set the focus to another surface, use nullptr to clear the focus
-      void set_focus(shared_t<resource_t<surface_t>>);
-    } pointer;
+    //   void
+    //   send_leave(shared_t<resource_t<surface_t>> &);
 
-    struct _keyboard {
-      compositor_t                 *root;
-      weak_t<resource_t<surface_t>> focus{};
+    //   /// Set the focus to another surface, use nullptr to clear the focus
+    //   void set_focus(shared_t<resource_t<surface_t>>);
+    // } pointer;
 
-      struct _xkb {
-        xkb_context *context;
-        xkb_keymap  *keymap;
-        xkb_state   *state;
-        char        *keymap_string;
-      } xkb;
+    // struct _keyboard {
+    //   compositor_t                 *root;
+    //   weak_t<resource_t<surface_t>> focus{};
 
-      void
-      send_enter(shared_t<resource_t<surface_t>> &);
+    //   struct _xkb {
+    //     xkb_context *context;
+    //     xkb_keymap  *keymap;
+    //     xkb_state   *state;
+    //     char        *keymap_string;
+    //   } xkb;
 
-      void
-      send_leave(shared_t<resource_t<surface_t>> &);
+    //   void
+    //   send_enter(shared_t<resource_t<surface_t>> &);
 
-      void
-      send_key(shared_t<resource_t<surface_t>> &, uint32_t, uint32_t);
+    //   void
+    //   send_leave(shared_t<resource_t<surface_t>> &);
 
-      void
-      send_modifiers(shared_t<resource_t<surface_t>> &, uint32_t, uint32_t, uint32_t, uint32_t);
+    //   void
+    //   send_key(shared_t<resource_t<surface_t>> &, uint32_t, uint32_t);
 
-      /// Set the focus to another surface, use nullptr to clear the focus
-      void set_focus(shared_t<resource_t<surface_t>>);
+    //   void
+    //   send_modifiers(shared_t<resource_t<surface_t>> &, uint32_t, uint32_t, uint32_t, uint32_t);
 
-    } keyboard;
+    //   /// Set the focus to another surface, use nullptr to clear the focus
+    //   void set_focus(shared_t<resource_t<surface_t>>);
 
-    struct _window {
-      compositor_t *root;
+    // } keyboard;
 
-      /// Send the activation state to a surface (should the underlying
-      /// role implement this)
-      void
-      activate(const shared_t<surface_t> &);
+    // struct _window {
+    //   compositor_t *root;
 
-      /// Send the deactivation state to a surface (should the underlying
-      /// role implement this)
-      void
-      deactivate(const shared_t<surface_t> &);
+    //   /// Send the activation state to a surface (should the underlying
+    //   /// role implement this)
+    //   void
+    //   activate(const shared_t<surface_t> &);
 
-      /// Currently activated surface
-      weak_t<surface_t> activated{};
-    } window;
+    //   /// Send the deactivation state to a surface (should the underlying
+    //   /// role implement this)
+    //   void
+    //   deactivate(const shared_t<surface_t> &);
 
-    double zoom;
-    double x, y;
-    bool   keychord, move_global_workspace;
+    //   /// Currently activated surface
+    //   weak_t<surface_t> activated{};
+    // } window;
+
+    // double zoom;
+    // double x, y;
+    // bool   move_global_workspace;
 
     compositor_t(minidrm::drm::handle_t drm_handle, const std::string &seat);
     ~compositor_t();
@@ -145,29 +145,15 @@ namespace barock {
     wl_display *
     display();
 
+    std::vector<shared_t<output_t>> outputs;
+
     void
-    schedule_frame_done(const shared_t<resource_t<surface_t>> &surface, uint32_t timestamp);
-
-    static int
-    frame_done_flush_callback(void *);
-
-    struct _damage {
-      std::vector<region_t>     regions;
-      mutable std::shared_mutex mutex;
-
-      void
-      add(const barock::region_t &region);
-
-      bool
-      stale(const barock::region_t &region) const;
-
-      bool
-      stale(const surface_t &surface) const;
-
-      std::vector<region_t>
-      intersections(const surface_t &surface) const;
-
-    } damage;
+    load_file(const std::string &path);
   };
 
+  struct barock_userdata_t {
+    compositor_t *compositor;
+  };
+
+  extern JanetAbstractType const barock_at;
 };

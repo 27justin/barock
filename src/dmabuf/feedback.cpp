@@ -23,8 +23,8 @@ create_dmabuf_feedback_v1_resource(wl_client *client, wl_resource *dmabuf_protoc
     support per-surface feedback (see get_surface_feedback).
   */
 
-  wl_resource *feedback = wl_resource_create(client, &zwp_linux_dmabuf_feedback_v1_interface,
-                                             wl_resource_get_version(dmabuf_protocol), id);
+  wl_resource *feedback = wl_resource_create(
+    client, &zwp_linux_dmabuf_feedback_v1_interface, wl_resource_get_version(dmabuf_protocol), id);
   if (!feedback) {
     wl_client_post_no_memory(client);
   }

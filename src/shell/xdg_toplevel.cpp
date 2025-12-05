@@ -1,4 +1,4 @@
-#include "barock/input.hpp"
+#include "barock/core/input.hpp"
 #include "barock/resource.hpp"
 
 #include "barock/core/shm_pool.hpp"
@@ -153,7 +153,7 @@ xdg_toplevel_move(wl_client   *client,
   auto compositor = wl_surface->compositor;
 
   struct _data {
-    signal_token_t on_mouse_move, on_mouse_button;
+    signal_token_t on_mouse_move, on_mouse_click;
     double         start_x{}, start_y{};
     int32_t        win_x{}, win_y{};
   };
@@ -184,7 +184,7 @@ xdg_toplevel_move(wl_client   *client,
       wl_surface->y = subscriptions->win_y + static_cast<int>(dy);
     });
 
-  subscriptions->on_mouse_button = compositor->input->on_mouse_button.connect(
+  subscriptions->on_mouse_click = compositor->input->on_mouse_click.connect(
     [compositor, subscriptions, wl_surface](const auto &event) {
       // Left mouse released
       if (event.button == BTN_LEFT && event.state == 0) {

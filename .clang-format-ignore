@@ -1,0 +1,5 @@
+# Ignore dependencies
+third_party/**
+
+# Ignore auto-generated wayland protocols
+include/wl/*

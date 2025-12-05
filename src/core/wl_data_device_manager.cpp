@@ -53,6 +53,6 @@ wl_data_device_manager_get_data_device(struct wl_client   *client,
     return;
   }
 
-  wl_resource_set_implementation(data_device, &wl_data_device_impl,
-                                 wl_resource_get_user_data(resource), nullptr);
+  wl_resource_set_implementation(
+    data_device, &wl_data_device_impl, wl_resource_get_user_data(resource), nullptr);
 }

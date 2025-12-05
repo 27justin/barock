@@ -14,10 +14,14 @@ target_compile_options(barock PRIVATE "-Werror=implicit-fallthrough")
 target_link_options(barock PRIVATE "-fsanitize=address")
 target_link_libraries(barock PUBLIC m)
 
+# libconfig
+target_link_libraries(barock PUBLIC config++)
+
 set(barock_SOURCES
   src/main.cpp
   src/compositor.cpp
   src/log.cpp
+
 
   # rendering
   src/fbo.cpp
@@ -25,9 +29,23 @@ set(barock_SOURCES
   # util
   src/util.cpp
 
+
+  src/core/config.cpp
+  src/core/event_loop.cpp
+
+  # render backends
+  src/render/opengl.cpp
+
   # input
-  src/input.cpp
+  src/core/input.cpp
   src/hotkey.cpp
+
+  # cursor
+  src/core/cursor_manager.cpp
+
+  # output
+  src/core/output.cpp
+  src/core/output_manager.cpp
 
   # drm
   src/drm/minidrm.cpp
@@ -38,10 +56,10 @@ set(barock_SOURCES
   src/core/shm.cpp
   src/core/shm_pool.cpp
   src/core/region.cpp
-  src/core/wl_subcompositor.cpp
-  src/core/wl_seat.cpp
-  src/core/wl_data_device_manager.cpp
-  src/core/wl_output.cpp
+  # src/core/wl_subcompositor.cpp
+  # src/core/wl_seat.cpp
+  # src/core/wl_data_device_manager.cpp
+  # src/core/wl_output.cpp
 
   # dmabuf
   src/dmabuf/dmabuf.cpp
@@ -49,9 +67,9 @@ set(barock_SOURCES
   src/dmabuf/feedback.cpp
 
   # xdg shell
-  src/shell/xdg_wm_base.cpp
-  src/shell/xdg_surface.cpp
-  src/shell/xdg_toplevel.cpp
+  # src/shell/xdg_wm_base.cpp
+  # src/shell/xdg_surface.cpp
+  # src/shell/xdg_toplevel.cpp
   )
 
 target_include_directories(barock PUBLIC "include/")
@@ -64,7 +82,7 @@ target_sources(barock
   ${barock_SOURCES})
 
 find_package(PkgConfig REQUIRED)
-pkg_check_modules(WAYLAND REQUIRED wayland-server wayland-client)
+pkg_check_modules(WAYLAND REQUIRED wayland-server)
 pkg_check_modules(WAYLAND_PROTOCOLS REQUIRED wayland-protocols)
 
 include(cmake/wayland.cmake)
@@ -74,6 +92,7 @@ generate_wayland_protocol(barock ${CMAKE_SOURCE_DIR}/protocols/linux-dmabuf-v1.x
 
 target_link_libraries(barock PRIVATE minidrm)
 target_link_libraries(barock PRIVATE wayland-server)
+target_link_libraries(barock PRIVATE Xcursor)
 
 # udev & libinput & libxkbcommon
 
@@ -88,3 +107,10 @@ target_include_directories(barock PRIVATE ${xkbcommon_INCLUDE_DIRS})
 target_compile_options(barock PRIVATE ${xkbcommon_CFLAGS})
 
 target_link_libraries(barock PRIVATE udev)
+
+
+# Janet
+
+target_sources(barock PRIVATE third_party/janet/janet.c)
+target_include_directories(barock PRIVATE third_party/janet/include/)
+

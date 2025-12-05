@@ -9,12 +9,11 @@ namespace barock {
 
   class wl_compositor_t {
     public:
-    wl_global    *global;
-    compositor_t &compositor;
+    wl_global *global;
 
     static constexpr uint32_t VERSION = 6;
 
-    wl_compositor_t(compositor_t &);
+    wl_compositor_t(wl_display *);
     ~wl_compositor_t();
 
     static void

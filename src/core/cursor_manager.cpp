@@ -1,0 +1,231 @@
+#include "barock/core/cursor_manager.hpp"
+#include "barock/core/input.hpp"
+#include "barock/core/output.hpp"
+#include "barock/core/renderer.hpp"
+#include "barock/core/signal.hpp"
+#include "jsl/optional.hpp"
+
+#include "../log.hpp"
+
+using namespace barock;
+
+const std::vector<std::string> CURSOR_NAMES = {
+  "alias",
+  "all-resize",
+  "all-scroll",
+  "arrow",
+  "bd_double_arrow",
+  "bottom_left_corner",
+  "bottom_right_corner",
+  "bottom_side",
+  "cell",
+  "col-resize",
+  "context-menu",
+  "copy",
+  "cross",
+  "crosshair",
+  "cross_reverse",
+  "default",
+  "diamond_cross",
+  "dnd-ask",
+  "dnd-move",
+  "e-resize",
+  "ew-resize",
+  "fd_double_arrow",
+  "fleur",
+  "grab",
+  "grabbing",
+  "hand1",
+  "hand2",
+  "help",
+  "left_ptr",
+  "left_side",
+  "move",
+  "ne-resize",
+  "nesw-resize",
+  "no-drop",
+  "not-allowed",
+  "n-resize",
+  "ns-resize",
+  "nw-resize",
+  "nwse-resize",
+  "pointer",
+  "progress",
+  "question_arrow",
+  "right_side",
+  "row-resize",
+  "sb_h_double_arrow",
+  "sb_v_double_arrow",
+  "se-resize",
+  "s-resize",
+  "sw-resize",
+  "tcross",
+  "text",
+  "top_left_arrow",
+  "top_left_corner",
+  "top_right_corner",
+  "top_side",
+  "vertical-text",
+  "wait",
+  "watch",
+  "w-resize",
+  "X_cursor",
+  "xterm",
+  "zoom-in",
+  "zoom-out",
+};
+
+cursor_manager_t::cursor_manager_t(output_manager_t &output, input_manager_t &input)
+  : output_manager_(output) {
+  input.on_mouse_move.connect(
+    std::bind(&cursor_manager_t::on_mouse_move, this, std::placeholders::_1));
+
+  input.on_mouse_click.connect(
+    std::bind(&cursor_manager_t::on_mouse_click, this, std::placeholders::_1));
+
+  input.on_mouse_scroll.connect(
+    std::bind(&cursor_manager_t::on_mouse_scroll, this, std::placeholders::_1));
+
+  texture_ = XcursorLibraryLoadImage("left_ptr", nullptr, 32);
+
+  // set_output(&output_manager_.outputs()[0]);
+}
+
+void
+cursor_manager_t::paint(output_t &output) {
+  fpoint_t screen = output.to<output_t::eWorkspace, output_t::eScreenspace>(position_);
+
+  std::visit(
+    [&]<typename T>(T &texture) {
+      if constexpr (std::is_same_v<std::decay_t<decltype(texture)>, XcursorImage *>) {
+        output.renderer().draw(texture, position_);
+      } else {
+        // shared_t<surface_t>
+        output.renderer().draw(*texture, position_);
+      }
+    },
+    texture_);
+}
+
+void
+cursor_manager_t::set_output(output_t *output) {
+  if (paint_token_)
+    output_->on_repaint[CURSOR_PAINT_LAYER].disconnect(paint_token_.value());
+
+  if (output != nullptr) {
+    output_ = output;
+    output_->on_repaint[CURSOR_PAINT_LAYER].connect(
+      std::bind(&cursor_manager_t::paint, this, std::placeholders::_1));
+  }
+}
+
+bool
+cursor_manager_t::transfer(const direction_t &direction) {
+  auto adjacent = output_->adjacent(direction);
+  if (adjacent) {
+    set_output(&adjacent.value());
+    return true;
+  }
+  return false;
+}
+
+void
+cursor_manager_t::on_mouse_move(mouse_event_t move) {
+  enum libinput_event_type ty = libinput_event_get_type(move.event);
+  // Our `on_mouse_move` signal triggers on two separate libinput events:
+  // - LIBINPUT_EVENT_POINTER_MOTION
+  // - LIBINPUT_EVENT_POINTER_MOTION_ABSOLUTE
+  //
+  // The latter (MOTION_ABSOLUTE), has its values based on the
+  // absolute extent of the device (imagine a graphics tablet, or a
+  // touch-screen).
+  //
+  // While the former reports just delta.
+  //
+  // Therefore to correctly handle these two cases, we query all
+  // active monitors for their size, and from that compute a
+  // relative cursor position.
+
+  double dx = 0., dy = 0.;
+
+  // Calculate the delta the mouse moved.
+  if (ty == LIBINPUT_EVENT_POINTER_MOTION_ABSOLUTE) {
+    static double last_x = 0., last_y = 0.;
+    uint32_t      sx = 0, sy = 0;
+    // for (auto &s : monitors) {
+    //   sx += s->mode.width();
+    //   sy = std::max(sy, s->mode.height());
+    // }
+
+    fpoint_t updated{};
+
+    updated.x = libinput_event_pointer_get_absolute_x_transformed(move.pointer, sx);
+    updated.y = libinput_event_pointer_get_absolute_y_transformed(move.pointer, sy);
+
+    // Convert absolute screen coords to workspace coords
+    position_ = output_->to<output_t::eScreenspace, output_t::eWorkspace>(updated);
+
+    // Compute delta in workspace space
+    double screen_dx = updated.x - last_x;
+    double screen_dy = updated.y - last_y;
+
+    dx = screen_dx;
+    dy = screen_dy;
+
+    last_x = updated.x;
+    last_y = updated.y;
+  } else {
+    dx = libinput_event_pointer_get_dx(move.pointer);
+    dy = libinput_event_pointer_get_dy(move.pointer);
+    position_.x += dx * 0.1;
+    position_.y += dy * 0.1;
+  }
+
+  // if (compositor.move_global_workspace) {
+  //   // Pan the workspace ...
+  //   compositor.x -= dx;
+  //   compositor.y -= dy;
+
+  //   // Negate the cursor movement, to make it static during panning.
+  //   cursor.x -= dx;
+  //   cursor.y -= dy;
+
+  //   return;
+  // }
+
+  direction_t transfer_direction = direction_t::eNone;
+  if (position_.x > output_->mode().width())
+    transfer_direction |= direction_t::eEast;
+
+  if (position_.y > output_->mode().height())
+    transfer_direction |= direction_t::eSouth;
+
+  if (position_.x < 0)
+    transfer_direction |= direction_t::eWest;
+
+  if (position_.y < 0)
+    transfer_direction |= direction_t::eNorth;
+
+  if (transfer_direction != direction_t::eNone) {
+    // Figure out the output that is in the transfer direction
+    bool transferred = this->transfer(transfer_direction);
+
+    if (!transferred) {
+      // Output has no adjacent monitor in the direction, if this is
+      // the case, we clamp the position to our output size.
+      position_.x = std::clamp(position_.x, 0.f, static_cast<float>(output_->mode().width()));
+      position_.y = std::clamp(position_.y, 0.f, static_cast<float>(output_->mode().height()));
+    }
+  }
+
+  // First figure out whether a surface currently has mouse focus.
+  if (auto focus = focus_.lock()) {
+    return;
+  }
+}
+
+void
+cursor_manager_t::on_mouse_click(mouse_button_t event) {}
+
+void
+cursor_manager_t::on_mouse_scroll(mouse_axis_t event) {}

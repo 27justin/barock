@@ -1,95 +1,123 @@
 #include "barock/compositor.hpp"
-#include "barock/resource.hpp"
-#include "barock/util.hpp"
-
-#include "barock/core/region.hpp"
-#include "barock/core/shm.hpp"
-#include "barock/core/shm_pool.hpp"
+#include "barock/core/cursor_manager.hpp"
+#include "barock/core/event_loop.hpp"
+#include "barock/core/input.hpp"
 #include "barock/core/wl_compositor.hpp"
-#include "barock/core/wl_data_device_manager.hpp"
-#include "barock/core/wl_output.hpp"
-#include "barock/core/wl_seat.hpp"
-#include "barock/core/wl_subcompositor.hpp"
 #include "barock/hotkey.hpp"
-
-#include "barock/dmabuf/dmabuf.hpp"
-#include "barock/input.hpp"
-#include "barock/shell/xdg_wm_base.hpp"
+#include "barock/render/opengl.hpp"
+#include "barock/resource.hpp"
+#include "barock/script/janet.hpp"
+#include "barock/singleton.hpp"
+#include "barock/util.hpp"
 #include "log.hpp"
 
-#include <EGL/eglext.h>
-#include <cstdint>
+#include <spawn.h>
 #include <wayland-egl-backend.h>
 #include <wayland-server-core.h>
 #include <wayland-util.h>
 
+#include <fstream>
+#include <sstream>
+
 using namespace barock;
 
-int
-compositor_t::frame_done_flush_callback(void *data) {
-  barock::compositor_t *compositor = static_cast<barock::compositor_t *>(data);
+pid_t
+run_command(std::string_view cmd) {
+  pid_t             pid;
+  posix_spawnattr_t attr;
 
-  std::lock_guard lock(compositor->frame_updates_lock);
-
-  while (!compositor->frame_updates.empty()) {
-    auto &[surface, timestamp] = compositor->frame_updates.front();
-
-    if (surface->frame_callback) {
-      wl_callback_send_done(surface->frame_callback, timestamp);
-      wl_resource_destroy(surface->frame_callback);
-      surface->frame_callback = nullptr;
-    }
-
-    if (surface->state.buffer &&
-        /* TODO: I am unsure why we need this check, when running
-         * `foot`, we encounter a weird issue, where the client
-         * destroys a wl_buffer, that is still attached.  I feel
-         * like this is an issue in our code, but I'll have to delve
-         * a bit deeper to understand why it happens. So for now,
-         * we'll keep this check in place. */
-        surface->state.buffer->resource() != nullptr) {
-      wl_buffer_send_release(surface->state.buffer->resource());
-    }
-
-    compositor->frame_updates.pop();
+  // Initialize spawn attributes
+  if (posix_spawnattr_init(&attr) != 0) {
+    perror("posix_spawnattr_init");
+    return -1;
   }
 
-  return 0;
+  // Set the POSIX_SPAWN_SETSID flag to detach from the current session
+  short flags = POSIX_SPAWN_SETSID;
+  if (posix_spawnattr_setflags(&attr, flags) != 0) {
+    perror("posix_spawnattr_setflags");
+    posix_spawnattr_destroy(&attr);
+    return -1;
+  }
+
+  const char *argv[] = { (char *)"sh", (char *)"-c", nullptr, nullptr };
+  std::string cmdstr(cmd);
+  argv[2]    = const_cast<char *>(cmdstr.c_str());
+  int result = posix_spawnp(&pid, "sh", NULL, NULL, const_cast<char *const *>(argv), environ);
+
+  posix_spawnattr_destroy(&attr);
+
+  if (result != 0) {
+    perror("posix_spawnp");
+    return -1;
+  }
+
+  return pid;
+}
+
+static Janet
+cfun_run_command(int argc, Janet *argv) {
+  janet_fixarity(argc, 1);
+
+  std::string command = (const char *)janet_getstring(argv, 0);
+  pid_t       pid     = run_command(command);
+  return janet_wrap_integer((int)pid);
 }
 
 compositor_t::compositor_t(minidrm::drm::handle_t drm_handle, const std::string &seat)
-  : drm_handle(drm_handle) {
+  : drm_handle(drm_handle)
+  , input() {
   using std::make_unique;
+
+  janet_init();
+
+  context_ = janet_core_env(nullptr);
+  singleton_t<janet_interop_t>::ensure(janet_interop_t{ .env = context_, .compositor = this });
+
   display_ = wl_display_create();
   wl_display_add_socket(display_, nullptr);
-  event_loop_ = wl_display_get_event_loop(display_);
 
-  // Initialize input devices
-  input = make_unique<input_t>(seat);
+  auto wl_event_loop = wl_display_get_event_loop(display_);
 
-  // Initialize protocols
-  xdg_shell     = make_unique<xdg_shell_t>(*this);
-  wl_compositor = make_unique<wl_compositor_t>(*this);
-  shm           = make_unique<shm_t>(*this);
-  // dmabuf                 = make_unique<dmabuf_t>(*this);
-  wl_subcompositor       = make_unique<wl_subcompositor_t>(*this);
-  wl_seat                = make_unique<wl_seat_t>(*this);
-  wl_data_device_manager = make_unique<wl_data_device_manager_t>(*this);
-  wl_output              = make_unique<wl_output_t>(*this);
+  TRACE("* Initializing Event Loop");
+  event_loop = make_unique<event_loop_t>(wl_event_loop);
 
-  hotkey         = make_unique<hotkey_t>();
-  hotkey->state  = keyboard.xkb.state;
-  hotkey->keymap = keyboard.xkb.keymap;
+  TRACE("* Initializing Input Manager");
+  input = make_unique<input_manager_t>(seat);
 
-  cursor.x = 0.;
-  cursor.y = 0.;
+  event_loop->add_fd(
+    input->fd(),
+    WL_EVENT_READABLE,
+    [](auto, auto, void *ud) -> int {
+      reinterpret_cast<compositor_t *>(ud)->input->poll(0);
+      return 0;
+    },
+    this);
 
-  pointer.root  = this;
-  keyboard.root = this;
-  window.root   = this;
+  output = make_unique<output_manager_t>(drm_handle);
+
+  TRACE("* Initializing Cursor Manager");
+  cursor = make_unique<cursor_manager_t>(*output, *input);
+
+  TRACE("* Initializing Hotkey Manager");
+  hotkey = make_unique<hotkey_t>(*input);
+
+  TRACE("* Initializing wl_compositor protocol");
+  wl_compositor = make_unique<wl_compositor_t>(display_);
+
+  constexpr static JanetReg compositor_fns[] = {
+    { "run-command",
+     &cfun_run_command,
+     "(run-command array)\n\nRun command supplied via `array', array is joined via ' ' and then "
+     "sent to a shell."              },
+    {       nullptr, nullptr, nullptr }
+  };
+  janet_cfuns(context_, "barock", compositor_fns);
 }
 
-compositor_t::~compositor_t() {}
+compositor_t::~compositor_t() {
+  janet_deinit();
+}
 
 wl_display *
 compositor_t::display() {
@@ -97,349 +125,273 @@ compositor_t::display() {
 }
 
 void
-compositor_t::schedule_frame_done(const shared_t<resource_t<surface_t>> &surface,
-                                  uint32_t                               timestamp) {
-  std::lock_guard lock(frame_updates_lock);
-  frame_updates.push(std::pair(surface, timestamp));
+compositor_t::load_file(const std::string &file) {
+  std::ifstream     stream(file);
+  std::stringstream ss;
+  ss << stream.rdbuf();
+
+  janet_dostring(context_, ss.str().c_str(), file.c_str(), nullptr);
 }
 
-void
-compositor_t::_pointer::send_enter(shared_t<resource_t<surface_t>> &surf) {
-  auto      &wl_seat = root->wl_seat;
-  wl_client *client  = surf->owner();
+// void
+// compositor_t::_pointer::send_enter(shared_t<resource_t<surface_t>> &surf) {
+//   auto      &wl_seat = root->wl_seat;
+//   wl_client *client  = surf->owner();
 
-  region_t bounds = surf->extent();
+//   region_t bounds = surf->extent();
 
-  double local_x{}, local_y{};
+//   double local_x{}, local_y{};
 
-  local_x = root->cursor.x - bounds.x;
-  local_y = root->cursor.y - bounds.y;
+//   local_x = root->cursor.x - bounds.x;
+//   local_y = root->cursor.y - bounds.y;
 
-  // Figure out whether the client has
-  // A.) A `wl_seat` configured.
-  // B.) A `wl_pointer` attached to that `wl_seat`.
-  if (auto seat = wl_seat->find(client); seat) {
-    if (auto pointer = seat->pointer.lock(); pointer) {
-      wl_pointer_send_enter(pointer->resource(),
-                            wl_display_next_serial(root->display()),
-                            surf->resource(),
-                            wl_fixed_from_double(local_x),
-                            wl_fixed_from_double(local_y));
-      wl_pointer_send_frame(pointer->resource());
-    }
-  }
-}
+//   // Figure out whether the client has
+//   // A.) A `wl_seat` configured.
+//   // B.) A `wl_pointer` attached to that `wl_seat`.
+//   if (auto seat = wl_seat->find(client); seat) {
+//     if (auto pointer = seat->pointer.lock(); pointer) {
+//       wl_pointer_send_enter(pointer->resource(),
+//                             wl_display_next_serial(root->display()),
+//                             surf->resource(),
+//                             wl_fixed_from_double(local_x),
+//                             wl_fixed_from_double(local_y));
+//       wl_pointer_send_frame(pointer->resource());
+//     }
+//   }
+// }
 
-void
-compositor_t::_pointer::send_leave(shared_t<resource_t<surface_t>> &surf) {
-  auto      &wl_seat = root->wl_seat;
-  wl_client *client  = surf->owner();
+// void
+// compositor_t::_pointer::send_leave(shared_t<resource_t<surface_t>> &surf) {
+//   auto      &wl_seat = root->wl_seat;
+//   wl_client *client  = surf->owner();
 
-  if (auto seat = wl_seat->find(client); seat) {
-    if (auto pointer = seat->pointer.lock(); pointer) {
-      wl_pointer_send_leave(
-        pointer->resource(), wl_display_next_serial(root->display()), surf->resource());
-      wl_pointer_send_frame(pointer->resource());
-    }
-  }
-}
+//   if (auto seat = wl_seat->find(client); seat) {
+//     if (auto pointer = seat->pointer.lock(); pointer) {
+//       wl_pointer_send_leave(
+//         pointer->resource(), wl_display_next_serial(root->display()), surf->resource());
+//       wl_pointer_send_frame(pointer->resource());
+//     }
+//   }
+// }
 
-void
-compositor_t::_pointer::send_button(shared_t<resource_t<surface_t>> &surf,
-                                    uint32_t                         button,
-                                    uint32_t                         state) {
-  auto      &wl_seat = root->wl_seat;
-  wl_client *client  = surf->owner();
+// void
+// compositor_t::_pointer::send_button(shared_t<resource_t<surface_t>> &surf,
+//                                     uint32_t                         button,
+//                                     uint32_t                         state) {
+//   auto      &wl_seat = root->wl_seat;
+//   wl_client *client  = surf->owner();
 
-  if (auto seat = wl_seat->find(client); seat) {
-    if (auto pointer = seat->pointer.lock(); pointer) {
-      wl_pointer_send_button(pointer->resource(),
-                             wl_display_next_serial(root->display()),
-                             current_time_msec(),
-                             button,
-                             state);
-      wl_pointer_send_frame(pointer->resource());
-    }
-  }
-}
+//   if (auto seat = wl_seat->find(client); seat) {
+//     if (auto pointer = seat->pointer.lock(); pointer) {
+//       wl_pointer_send_button(pointer->resource(),
+//                              wl_display_next_serial(root->display()),
+//                              current_time_msec(),
+//                              button,
+//                              state);
+//       wl_pointer_send_frame(pointer->resource());
+//     }
+//   }
+// }
 
-void
-compositor_t::_pointer::send_motion(shared_t<resource_t<surface_t>> &surface) {
-  auto      &wl_seat = root->wl_seat;
-  wl_client *client  = surface->owner();
+// void
+// compositor_t::_pointer::send_motion(shared_t<resource_t<surface_t>> &surface) {
+//   auto      &wl_seat = root->wl_seat;
+//   wl_client *client  = surface->owner();
 
-  if (auto seat = wl_seat->find(client); seat) {
-    if (auto pointer = seat->pointer.lock(); pointer) {
-      auto position = surface->position();
+//   if (auto seat = wl_seat->find(client); seat) {
+//     if (auto pointer = seat->pointer.lock(); pointer) {
+//       auto position = surface->position();
 
-      double local_x{}, local_y{};
-      local_x = (root->cursor.x - position.x);
-      local_y = (root->cursor.y - position.y);
+//       double local_x{}, local_y{};
+//       local_x = (root->cursor.x - position.x);
+//       local_y = (root->cursor.y - position.y);
 
-      wl_pointer_send_motion(pointer->resource(),
-                             current_time_msec(),
-                             wl_fixed_from_double(local_x),
-                             wl_fixed_from_double(local_y));
-      wl_pointer_send_frame(pointer->resource());
-    }
-  }
-}
+//       wl_pointer_send_motion(pointer->resource(),
+//                              current_time_msec(),
+//                              wl_fixed_from_double(local_x),
+//                              wl_fixed_from_double(local_y));
+//       wl_pointer_send_frame(pointer->resource());
+//     }
+//   }
+// }
 
-void
-compositor_t::_pointer::send_motion(shared_t<resource_t<surface_t>> &surface, double x, double y) {
-  auto      &wl_seat = root->wl_seat;
-  wl_client *client  = surface->owner();
+// void
+// compositor_t::_pointer::send_motion(shared_t<resource_t<surface_t>> &surface, double x, double y)
+// {
+//   auto      &wl_seat = root->wl_seat;
+//   wl_client *client  = surface->owner();
 
-  if (auto seat = wl_seat->find(client); seat) {
-    if (auto pointer = seat->pointer.lock(); pointer) {
-      wl_pointer_send_motion(
-        pointer->resource(), current_time_msec(), wl_fixed_from_double(x), wl_fixed_from_double(y));
-      wl_pointer_send_frame(pointer->resource());
-    }
-  }
-}
+//   if (auto seat = wl_seat->find(client); seat) {
+//     if (auto pointer = seat->pointer.lock(); pointer) {
+//       wl_pointer_send_motion(
+//         pointer->resource(), current_time_msec(), wl_fixed_from_double(x),
+//         wl_fixed_from_double(y));
+//       wl_pointer_send_frame(pointer->resource());
+//     }
+//   }
+// }
 
-void
-compositor_t::_pointer::send_axis(shared_t<resource_t<surface_t>> &surface,
-                                  int                              axis,
-                                  double                           delta) {
-  auto      &wl_seat = root->wl_seat;
-  wl_client *client  = surface->owner();
+// void
+// compositor_t::_pointer::send_axis(shared_t<resource_t<surface_t>> &surface,
+//                                   int                              axis,
+//                                   double                           delta) {
+//   auto      &wl_seat = root->wl_seat;
+//   wl_client *client  = surface->owner();
 
-  if (auto seat = wl_seat->find(client); seat) {
-    if (auto pointer = seat->pointer.lock(); pointer) {
-      wl_pointer_send_axis(
-        pointer->resource(), current_time_msec(), axis, wl_fixed_from_double(delta));
-      wl_pointer_send_frame(pointer->resource());
-    }
-  }
-}
+//   if (auto seat = wl_seat->find(client); seat) {
+//     if (auto pointer = seat->pointer.lock(); pointer) {
+//       wl_pointer_send_axis(
+//         pointer->resource(), current_time_msec(), axis, wl_fixed_from_double(delta));
+//       wl_pointer_send_frame(pointer->resource());
+//     }
+//   }
+// }
 
-void
-compositor_t::_pointer::set_focus(shared_t<resource_t<surface_t>> surf) {
-  if (auto surface = focus.lock(); surface) {
-    // Send leave event
-    auto      &wl_seat = root->wl_seat;
-    wl_client *client  = surface->owner();
+// void
+// compositor_t::_pointer::set_focus(shared_t<resource_t<surface_t>> surf) {
+//   if (auto surface = focus.lock(); surface) {
+//     // Send leave event
+//     auto      &wl_seat = root->wl_seat;
+//     wl_client *client  = surface->owner();
 
-    if (auto seat = wl_seat->find(client); seat) {
-      if (auto pointer = seat->pointer.lock(); pointer) {
-        wl_pointer_send_leave(
-          pointer->resource(), wl_display_next_serial(root->display()), surface->resource());
-      }
-    }
-  }
+//     if (auto seat = wl_seat->find(client); seat) {
+//       if (auto pointer = seat->pointer.lock(); pointer) {
+//         wl_pointer_send_leave(
+//           pointer->resource(), wl_display_next_serial(root->display()), surface->resource());
+//       }
+//     }
+//   }
 
-  focus = surf;
-  if (surf)
-    send_enter(surf);
-}
+//   focus = surf;
+//   if (surf)
+//     send_enter(surf);
+// }
 
-void
-compositor_t::_keyboard::send_enter(shared_t<resource_t<surface_t>> &surf) {
-  auto      &wl_seat = root->wl_seat;
-  wl_client *client  = surf->owner();
+// void
+// compositor_t::_keyboard::send_enter(shared_t<resource_t<surface_t>> &surf) {
+//   auto      &wl_seat = root->wl_seat;
+//   wl_client *client  = surf->owner();
 
-  // Figure out whether the client has
-  // A.) A `wl_seat` configured.
-  // B.) A `wl_keyboard` attached to that `wl_seat`.
-  if (auto seat = wl_seat->find(client); seat) {
-    if (auto keyboard = seat->keyboard.lock(); keyboard) {
-      wl_array keys;
-      wl_array_init(&keys);
-      wl_keyboard_send_enter(
-        keyboard->resource(), wl_display_next_serial(root->display()), surf->resource(), &keys);
-      wl_array_release(&keys);
-    }
-  }
-}
+//   // Figure out whether the client has
+//   // A.) A `wl_seat` configured.
+//   // B.) A `wl_keyboard` attached to that `wl_seat`.
+//   if (auto seat = wl_seat->find(client); seat) {
+//     if (auto keyboard = seat->keyboard.lock(); keyboard) {
+//       wl_array keys;
+//       wl_array_init(&keys);
+//       wl_keyboard_send_enter(
+//         keyboard->resource(), wl_display_next_serial(root->display()), surf->resource(), &keys);
+//       wl_array_release(&keys);
+//     }
+//   }
+// }
 
-void
-compositor_t::_keyboard::send_leave(shared_t<resource_t<surface_t>> &surf) {
-  auto      &wl_seat = root->wl_seat;
-  wl_client *client  = surf->owner();
+// void
+// compositor_t::_keyboard::send_leave(shared_t<resource_t<surface_t>> &surf) {
+//   auto      &wl_seat = root->wl_seat;
+//   wl_client *client  = surf->owner();
 
-  // Figure out whether the client has
-  // A.) A `wl_seat` configured.
-  // B.) A `wl_keyboard` attached to that `wl_seat`.
-  if (auto seat = wl_seat->find(client); seat) {
-    if (auto keyboard = seat->keyboard.lock(); keyboard) {
-      wl_keyboard_send_leave(
-        keyboard->resource(), wl_display_next_serial(root->display()), surf->resource());
-    }
-  }
-}
+//   // Figure out whether the client has
+//   // A.) A `wl_seat` configured.
+//   // B.) A `wl_keyboard` attached to that `wl_seat`.
+//   if (auto seat = wl_seat->find(client); seat) {
+//     if (auto keyboard = seat->keyboard.lock(); keyboard) {
+//       wl_keyboard_send_leave(
+//         keyboard->resource(), wl_display_next_serial(root->display()), surf->resource());
+//     }
+//   }
+// }
 
-void
-compositor_t::_keyboard::send_key(shared_t<resource_t<surface_t>> &surf,
-                                  uint32_t                         key,
-                                  uint32_t                         state) {
-  auto      &wl_seat = root->wl_seat;
-  wl_client *client  = surf->owner();
+// void
+// compositor_t::_keyboard::send_key(shared_t<resource_t<surface_t>> &surf,
+//                                   uint32_t                         key,
+//                                   uint32_t                         state) {
+//   auto      &wl_seat = root->wl_seat;
+//   wl_client *client  = surf->owner();
 
-  if (auto seat = wl_seat->find(client); seat) {
-    if (auto keyboard = seat->keyboard.lock(); keyboard) {
+//   if (auto seat = wl_seat->find(client); seat) {
+//     if (auto keyboard = seat->keyboard.lock(); keyboard) {
 
-      wl_keyboard_send_key(keyboard->resource(),
-                           wl_display_next_serial(root->display()),
-                           current_time_msec(),
-                           key,
-                           state);
-    }
-  }
-}
+//       wl_keyboard_send_key(keyboard->resource(),
+//                            wl_display_next_serial(root->display()),
+//                            current_time_msec(),
+//                            key,
+//                            state);
+//     }
+//   }
+// }
 
-void
-compositor_t::_keyboard::send_modifiers(shared_t<resource_t<surface_t>> &surf,
-                                        uint32_t                         depressed,
-                                        uint32_t                         latched,
-                                        uint32_t                         locked,
-                                        uint32_t                         group) {
-  auto      &wl_seat = root->wl_seat;
-  wl_client *client  = surf->owner();
+// void
+// compositor_t::_keyboard::send_modifiers(shared_t<resource_t<surface_t>> &surf,
+//                                         uint32_t                         depressed,
+//                                         uint32_t                         latched,
+//                                         uint32_t                         locked,
+//                                         uint32_t                         group) {
+//   auto      &wl_seat = root->wl_seat;
+//   wl_client *client  = surf->owner();
 
-  if (auto seat = wl_seat->find(client); seat) {
-    if (auto keyboard = seat->keyboard.lock(); keyboard) {
+//   if (auto seat = wl_seat->find(client); seat) {
+//     if (auto keyboard = seat->keyboard.lock(); keyboard) {
 
-      wl_keyboard_send_modifiers(keyboard->resource(),
-                                 wl_display_next_serial(root->display()),
-                                 depressed,
-                                 latched,
-                                 locked,
-                                 group);
-    }
-  }
-}
+//       wl_keyboard_send_modifiers(keyboard->resource(),
+//                                  wl_display_next_serial(root->display()),
+//                                  depressed,
+//                                  latched,
+//                                  locked,
+//                                  group);
+//     }
+//   }
+// }
 
-void
-compositor_t::_keyboard::set_focus(shared_t<resource_t<surface_t>> surf) {
-  if (auto surface = focus.lock(); surface) {
-    // Send leave event
-    auto      &wl_seat = root->wl_seat;
-    wl_client *client  = surface->owner();
-    if (auto seat = wl_seat->find(client); seat) {
-      if (auto keyboard = seat->keyboard.lock(); keyboard) {
-        wl_keyboard_send_leave(
-          keyboard->resource(), wl_display_next_serial(root->display()), surface->resource());
-      }
-    }
-  }
+// void
+// compositor_t::_keyboard::set_focus(shared_t<resource_t<surface_t>> surf) {
+//   if (auto surface = focus.lock(); surface) {
+//     // Send leave event
+//     auto      &wl_seat = root->wl_seat;
+//     wl_client *client  = surface->owner();
+//     if (auto seat = wl_seat->find(client); seat) {
+//       if (auto keyboard = seat->keyboard.lock(); keyboard) {
+//         wl_keyboard_send_leave(
+//           keyboard->resource(), wl_display_next_serial(root->display()), surface->resource());
+//       }
+//     }
+//   }
 
-  focus = surf;
-  if (surf) // handle nullptr (no focus)
-    send_enter(surf);
-}
+//   focus = surf;
+//   if (surf) // handle nullptr (no focus)
+//     send_enter(surf);
+// }
 
-void
-compositor_t::_window::activate(const shared_t<surface_t> &surface) {
-  // We can't activate a surface that has no role.
-  if (!surface->has_role()) {
-    TRACE("Tried to activate window without a role!");
-    return;
-  }
+// void
+// compositor_t::_window::activate(const shared_t<surface_t> &surface) {
+//   // We can't activate a surface that has no role.
+//   if (!surface->has_role()) {
+//     TRACE("Tried to activate window without a role!");
+//     return;
+//   }
 
-  if (surface->role->type_id() == xdg_surface_t::id()) {
-    auto xdg_surface = shared_cast<xdg_surface_t>(surface->role);
-    root->xdg_shell->activate(xdg_surface);
-    activated = surface;
-    return;
-  }
-  assert(false && "Unhandled surface role in compositor_t::window_#activate");
-}
+//   if (surface->role->type_id() == xdg_surface_t::id()) {
+//     auto xdg_surface = shared_cast<xdg_surface_t>(surface->role);
+//     root->xdg_shell->activate(xdg_surface);
+//     activated = surface;
+//     return;
+//   }
+//   assert(false && "Unhandled surface role in compositor_t::window_#activate");
+// }
 
-void
-compositor_t::_window::deactivate(const shared_t<surface_t> &surface) {
-  // We can't deactivate a surface that has no role.
-  if (!surface->has_role()) {
-    TRACE("Trying to deactivate surface that has no role!");
-    return;
-  }
+// void
+// compositor_t::_window::deactivate(const shared_t<surface_t> &surface) {
+//   // We can't deactivate a surface that has no role.
+//   if (!surface->has_role()) {
+//     TRACE("Trying to deactivate surface that has no role!");
+//     return;
+//   }
 
-  if (surface->role->type_id() == xdg_surface_t::id()) {
-    auto xdg_surface = shared_cast<xdg_surface_t>(surface->role);
-    root->xdg_shell->deactivate(xdg_surface);
-    activated = nullptr;
-    return;
-  }
-  assert(false && "Unhandled surface role in compositor_t::window_#activate");
-}
-
-void
-compositor_t::_damage::add(const region_t &region) {
-  std::shared_lock lk(mutex);
-  regions.emplace_back(region);
-}
-
-bool
-compositor_t::_damage::stale(const region_t &region) const {
-  std::unique_lock lk(mutex);
-  for (auto &damage : regions) {
-    if (region.intersects(damage)) {
-      return true;
-    }
-  }
-  return false;
-}
-
-bool
-compositor_t::_damage::stale(const surface_t &surface) const {
-  std::unique_lock lk(mutex);
-
-  auto position = surface.position();
-  auto size     = surface.full_extent();
-  position.w    = size.w;
-  position.h    = size.h;
-
-  auto root = surface.find_parent([](auto &surface) {
-    return surface->role && surface->role->type_id() == barock::xdg_surface_t::id();
-  });
-
-  if (root) {
-    auto xdg_surface = shared_cast<xdg_surface_t>(root->role);
-    position.x -= xdg_surface->x;
-    position.y -= xdg_surface->y;
-  }
-
-  for (auto &damage : regions) {
-    if (position.intersects(damage)) {
-      return true;
-    }
-  }
-  return false;
-}
-
-std::vector<region_t>
-compositor_t::_damage::intersections(const surface_t &surface) const {
-  std::shared_lock lk(mutex);
-
-  auto global_position = surface.position();
-  auto local_position  = surface.position();
-  auto size            = surface.full_extent();
-
-  global_position.w = local_position.w = size.w;
-  global_position.h = local_position.h = size.h;
-
-  const surface_t *xdg_surface = &surface;
-  if (!xdg_surface->has_role() ||
-      (xdg_surface->has_role() && xdg_surface->role->type_id() != barock::xdg_surface_t::id())) {
-    xdg_surface =
-      surface
-        .find_parent([](auto &xdg_surface) {
-          return xdg_surface->role && xdg_surface->role->type_id() == barock::xdg_surface_t::id();
-        })
-        .get();
-  }
-
-  if (xdg_surface != nullptr) {
-    global_position.x -= xdg_surface->x;
-    global_position.y -= xdg_surface->y;
-  }
-
-  std::vector<region_t> dirty;
-  for (auto const &damage : regions) {
-    if (global_position.intersects(damage)) {
-      dirty.push_back(damage - local_position);
-    }
-  }
-  return dirty;
-}
+//   if (surface->role->type_id() == xdg_surface_t::id()) {
+//     auto xdg_surface = shared_cast<xdg_surface_t>(surface->role);
+//     root->xdg_shell->deactivate(xdg_surface);
+//     activated = nullptr;
+//     return;
+//   }
+//   assert(false && "Unhandled surface role in compositor_t::window_#activate");
+// }

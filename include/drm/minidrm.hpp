@@ -34,8 +34,9 @@
 
 #include <atomic>
 #include <filesystem>
-#include <string_view>
+#include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 #if defined(MINIDRM_EGL) || defined(MINIDRM_VULKAN)
@@ -67,7 +68,8 @@ namespace minidrm {
     struct mode_t;
 
     struct card_t {
-      const fs::path path;
+      fs::path path;
+
       handle_t
       open() const;
     };
@@ -107,6 +109,9 @@ namespace minidrm {
       handle_t(const handle_t &handle);
       ~handle_t();
 
+      handle_t &
+      operator=(const handle_t &);
+
       handle_data_t *
       operator->();
 
@@ -123,7 +128,7 @@ namespace minidrm {
       connector_t(const connector_t &);
       ~connector_t();
 
-      std::string_view
+      std::string
       type() const;
 
       drmModeConnection
@@ -140,6 +145,7 @@ namespace minidrm {
 
     struct mode_t {
       drmModeModeInfo mode;
+      bool            preferred;
 
       public:
       mode_t(drmModeModeInfo *info);
@@ -214,6 +220,10 @@ namespace minidrm {
             const drm::crtc_t      &crtc,
             const drm::mode_t      &mode,
             uint32_t                backbuffers = 2);
+
+      egl_t(const egl_t &) = delete;
+      egl_t(egl_t &&);
+
       ~egl_t();
 
       void
@@ -253,6 +263,21 @@ namespace minidrm::drm {
     data->egl.context = nullptr;
     data->egl.config  = nullptr;
 #endif
+  }
+
+  handle_t &
+  handle_t::operator=(const handle_t &other) {
+    if (&other == this)
+      return *this;
+
+    (*references)--;
+    card       = other.card;
+    fd         = other.fd;
+    references = other.references;
+    data       = other.data;
+
+    (*references)++;
+    return *this;
   }
 
   handle_data_t *
@@ -368,6 +393,7 @@ namespace minidrm::drm {
 
   mode_t::mode_t(drmModeModeInfo *info) {
     memcpy(&mode, info, sizeof(mode));
+    preferred = (info->type & DRM_MODE_TYPE_PREFERRED) > 0;
   }
 
   const drmModeConnector *
@@ -385,7 +411,7 @@ namespace minidrm::drm {
     return connector->connection;
   }
 
-  std::string_view
+  std::string
   connector_t::type() const {
     auto name = drmModeGetConnectorTypeName(connector->connector_type);
     if (!name) {
@@ -457,10 +483,19 @@ namespace minidrm::drm {
     }
 
     // 4. Choose EGL config
-    const EGLint config_attribs[] = { EGL_SURFACE_TYPE, EGL_WINDOW_BIT,
+    const EGLint config_attribs[] = { EGL_SURFACE_TYPE,
+                                      EGL_WINDOW_BIT,
                                       // RGB
-                                      EGL_RED_SIZE, 8, EGL_GREEN_SIZE, 8, EGL_BLUE_SIZE, 8,
-                                      EGL_ALPHA_SIZE, 0, EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
+                                      EGL_RED_SIZE,
+                                      8,
+                                      EGL_GREEN_SIZE,
+                                      8,
+                                      EGL_BLUE_SIZE,
+                                      8,
+                                      EGL_ALPHA_SIZE,
+                                      0,
+                                      EGL_RENDERABLE_TYPE,
+                                      EGL_OPENGL_ES2_BIT,
                                       EGL_NONE };
 
     EGLint    matching_config;
@@ -530,8 +565,8 @@ namespace minidrm::framebuffer {
 
   void
   software_t::mode_set(const drm::connector_t &conn, drm::crtc_t &crtc) {
-    int result = drmModeSetCrtc(drm.fd, crtc.id, id, 0, 0,
-                                const_cast<uint32_t *>(&conn->connector_id), 1, &crtc.crtc->mode);
+    int result = drmModeSetCrtc(
+      drm.fd, crtc.id, id, 0, 0, const_cast<uint32_t *>(&conn->connector_id), 1, &crtc.crtc->mode);
     if (result) {
       throw std::runtime_error("Failed to mode set.");
     }
@@ -550,7 +585,10 @@ namespace minidrm::framebuffer {
     , num_backbuffers(bufs)
     , current_backbuffer(0) {
 
-    surface = gbm_surface_create(drm->gbm, mode.width(), mode.height(), GBM_FORMAT_XRGB8888,
+    surface = gbm_surface_create(drm->gbm,
+                                 mode.width(),
+                                 mode.height(),
+                                 GBM_FORMAT_XRGB8888,
                                  GBM_BO_USE_SCANOUT | GBM_BO_USE_RENDERING);
     if (!surface) {
       throw std::runtime_error("failed to create GBM surface");
@@ -592,6 +630,22 @@ namespace minidrm::framebuffer {
     }
     bo_to_fb[bo] = backbuffers[0].fb;
     gbm_surface_release_buffer(surface, bo);
+  }
+
+  egl_t::egl_t(egl_t &&other)
+    : drm(other.drm)
+    , connector(other.connector)
+    , crtc(other.crtc)
+    , mode(other.mode) {
+
+    surface     = std::exchange(other.surface, nullptr);
+    egl_surface = other.egl_surface;
+
+    num_backbuffers    = other.num_backbuffers;
+    current_backbuffer = other.current_backbuffer.load();
+    bo_to_fb           = std::move(other.bo_to_fb);
+    backbuffers        = std::exchange(other.backbuffers, nullptr);
+    last_bo            = std::exchange(other.last_bo, nullptr);
   }
 
   egl_t::~egl_t() {
@@ -645,7 +699,9 @@ namespace minidrm::framebuffer {
     ev_data->flip_done = false;
 
     // Tell the DRM to flip our framebuffer
-    int ret = drmModePageFlip(drm.fd, crtc.id, fb_id,
+    int ret = drmModePageFlip(drm.fd,
+                              crtc.id,
+                              fb_id,
                               DRM_MODE_PAGE_FLIP_EVENT, // async, we'll wait later
                               ev_data);
     if (ret) {
@@ -675,8 +731,14 @@ namespace minidrm::framebuffer {
   void
   egl_t::mode_set() {
     // Set CRTC to display the framebuffer
-    int ret = drmModeSetCrtc(drm.fd, crtc.id, backbuffers[current_backbuffer].fb, 0, 0,
-                             &connector->connector_id, 1, &crtc.crtc->mode);
+    int ret = drmModeSetCrtc(drm.fd,
+                             crtc.id,
+                             backbuffers[current_backbuffer].fb,
+                             0,
+                             0,
+                             &connector->connector_id,
+                             1,
+                             &crtc.crtc->mode);
     if (ret) {
       throw std::runtime_error("Failed to mode set EGL buffer");
     }

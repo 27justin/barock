@@ -21,9 +21,7 @@ using namespace barock;
 
 namespace barock {
   surface_t::surface_t()
-    : compositor(nullptr)
-    , frame_callback(nullptr)
-    , state({ .subsurface = nullptr })
+    : state({ .subsurface = nullptr })
     , staging({ .subsurface = nullptr }) {
 
     // The initial value for an input region is infinite. That means
@@ -32,108 +30,28 @@ namespace barock {
   }
 
   surface_t::surface_t(surface_t &&other)
-    : compositor(std::exchange(other.compositor, nullptr))
-    , frame_callback(std::exchange(other.frame_callback, nullptr))
-    , state(std::exchange(other.state, { .subsurface = nullptr }))
+    : state(std::exchange(other.state, { .subsurface = nullptr }))
     , staging(std::exchange(other.staging, { .subsurface = nullptr }))
     , role(std::exchange(other.role, nullptr)) {}
 
-  region_t
-  surface_t::extent() const {
-    region_t bounds{};
-    if (state.buffer) {
-      bounds.w = state.buffer->width;
-      bounds.h = state.buffer->height;
-    }
-    return bounds;
-  }
-
-  region_t
+  fpoint_t
   surface_t::full_extent() const {
-    region_t region = extent();
+    fpoint_t region = { state.buffer ? static_cast<float>(state.buffer->width) : 0.f,
+                        state.buffer ? static_cast<float>(state.buffer->height) : 0.f };
 
     for (auto &child : state.children) {
       if (auto subsurface = child->surface.lock()) {
-        region_t child_region = subsurface->full_extent();
-        child_region.x += subsurface->x;
-        child_region.y += subsurface->y;
-
-        region = region.union_with(child_region); // merge bounding boxes
+        fpoint_t child_region = subsurface->full_extent();
+        region.x += child_region.x;
+        region.y += child_region.y;
       }
     }
-
     return region;
-  }
-
-  region_t
-  surface_t::position() const {
-    region_t bounds = extent();
-    bounds.x        = 0;
-    bounds.y        = 0;
-
-    auto current = this;
-    while (current->parent.lock()) {
-      current = current->parent.lock().get();
-      bounds.x += current->x;
-      bounds.y += current->y;
-    }
-
-    bounds.x += x;
-    bounds.y += y;
-    return bounds;
-  }
-
-  shared_t<surface_t>
-  surface_t::lookup_at(double x, double y) {
-    for (auto it = state.children.rbegin(); it != state.children.rend(); ++it) {
-      if (auto subsurface = (*it)->surface.lock()) {
-        // First compute the hit test point relative to the subsurface
-        auto position = subsurface->position();
-        auto extent   = subsurface->extent();
-        position.w    = extent.w;
-        position.h    = extent.h;
-
-        // INFO("Lookup:\n  Surface: x = {}, y = {}\n  Cursor: x = {}, y = {}\n",
-        // position.x, position.y, x, y);
-
-        if (position.intersects(x, y)) {
-          if (auto deeper = subsurface->lookup_at(x, y))
-            return deeper;
-          else
-            return subsurface;
-        }
-      }
-    }
-
-    // No child matched; return nullptr
-    return nullptr;
-  }
-
-  shared_t<surface_t>
-  surface_t::find_parent(const std::function<bool(shared_t<surface_t> &)> &condition) const {
-    // Do we even have a parent?
-    if (shared_t<surface_t> current_surface = parent.lock()) {
-      // We have; then ascend upwards and test until we match
-      // something, or until we have no parent anymore.
-      do {
-        if (!current_surface)
-          return nullptr;
-
-        if (condition(current_surface)) {
-          return current_surface;
-        }
-
-        // Exit when the surface doesn't have a parent.
-        if (!current_surface->state.subsurface)
-          return nullptr;
-      } while ((current_surface = current_surface->parent.lock()));
-    }
-    return nullptr;
   }
 
   bool
   surface_t::has_role() const {
-    return role.get() != nullptr;
+    return role != nullptr;
   }
 }
 
@@ -177,31 +95,7 @@ wl_surface_commit(wl_client *client, wl_resource *wl_surface) {
   // nullptr, when set to nullptr, the compositor detaches the buffer
   // and stops rendering that surface.
   if (surface->state.buffer) {
-    surface->on_buffer_attach.emit(*surface->state.buffer);
-  }
-
-  // If we have damage...
-  if (surface->state.damage) {
-    // Turn the local damage region into a screen space damage region
-    region_t damage   = *surface->state.damage;
-    auto     position = surface->position();
-
-    // Transform into workspace local region
-    position.x += damage.x;
-    position.y += damage.y;
-    position.w = damage.w;
-    position.h = damage.h;
-
-    // TODO: Manually hard-coded logical XDG surface offset of our
-    // surface T_T, surfaces /shouldn't/, have to know about their
-    // actual implementation, and yet, we have to account for this offset.
-    //
-    // Ideally, we should check for the role within an overload for
-    // `damage.add`, later on.
-    position.x -= -5;
-    position.y -= -26;
-
-    surface->compositor->damage.add(position);
+    surface->events.on_buffer_attach.emit(*surface->state.buffer);
   }
 
   surface->staging = barock::surface_state_t{ // By default, our surface has no pending damage.
@@ -232,8 +126,7 @@ wl_surface_destroy(wl_client *client, wl_resource *wl_surface) {
 void
 wl_surface_frame(wl_client *client, wl_resource *wl_surface, uint32_t callback) {
   auto surface = from_wl_resource<surface_t>(wl_surface);
-
-  auto weak = new weak_t<resource_t<surface_t>>(surface);
+  auto weak    = new weak_t<resource_t<surface_t>>(surface);
 
   wl_resource *callback_res = wl_resource_create(
     client, &wl_callback_interface, wl_resource_get_version(wl_surface), callback);
@@ -241,8 +134,8 @@ wl_surface_frame(wl_client *client, wl_resource *wl_surface, uint32_t callback) 
   wl_resource_set_implementation(callback_res, nullptr, weak, [](wl_resource *res) {
     auto weak_surface = (weak_t<resource_t<surface_t>> *)wl_resource_get_user_data(res);
     if (auto surface = weak_surface->lock(); surface) {
-      if (surface->frame_callback == res) {
-        surface->frame_callback = nullptr; // prevent dangling ptr
+      if (surface->state.pending == res) {
+        surface->state.pending = nullptr; // prevent dangling ptr
       } else {
         WARN("Tried to zero frame callback, but isn't owned by this resource");
       }
@@ -253,7 +146,8 @@ wl_surface_frame(wl_client *client, wl_resource *wl_surface, uint32_t callback) 
     delete weak_surface;
   });
 
-  surface->frame_callback = callback_res;
+  surface->state.pending   = callback_res;
+  surface->staging.pending = callback_res;
 }
 
 void
@@ -269,9 +163,6 @@ wl_surface_attach(wl_client   *client,
     surface->staging.buffer = nullptr;
     return;
   }
-
-  // auto shm_buffer = from_wl_resource<shm_buffer_t>(wl_buffer);
-  // WARN("dimensions: {} x {}", shm_buffer->width, shm_buffer->height);
 
   // Buffers are double-buffered
   surface->staging.buffer = from_wl_resource<shm_buffer_t>(wl_buffer);
