@@ -61,6 +61,8 @@ wl_shm_pool_create_buffer(wl_client   *client,
     auto it = std::find(buffer->pool->buffers.begin(), buffer->pool->buffers.end(), buffer);
     if (it != buffer->pool->buffers.end())
       buffer->pool->buffers.erase(it);
+
+    return signal_action_t::eOk;
   });
 
   pool->buffers.emplace_back(buffer);

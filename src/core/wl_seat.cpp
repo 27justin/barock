@@ -91,7 +91,7 @@ barock::wl_seat_t::bind(wl_client *client, void *ud, uint32_t version, uint32_t 
 
   auto wl_seat       = make_resource<seat_t>(client, wl_seat_interface, wl_seat_impl, version, id);
   wl_seat->interface = seat;
-  wl_seat->on_destroy.connect([orig = wl_seat->resource(), seat](auto resource) {
+  wl_seat->on_destroy.connect([orig = wl_seat->resource(), seat](auto resource) -> signal_action_t {
     // The wl_seat object has a more complicated destructor. Some
     // clients (>_> weston-terminal), seem to be more lenient in what
     // order they destroy their resources, sometimes first the
@@ -105,7 +105,7 @@ barock::wl_seat_t::bind(wl_client *client, void *ud, uint32_t version, uint32_t 
     auto tmp = from_wl_resource<seat_t>(resource);
     if (!tmp) {
       WARN("Seat is invalid, can't clean up pointer, etc.");
-      return;
+      return signal_action_t::eOk;
     }
 
     auto pointer = tmp->pointer.lock();
@@ -122,6 +122,7 @@ barock::wl_seat_t::bind(wl_client *client, void *ud, uint32_t version, uint32_t 
       WARN("Removing client from seats map");
       seat->seats.erase(wl_resource_get_client(orig));
     }
+    return signal_action_t::eOk;
   });
 
   // Add a record to our map to identify clients -> seats
@@ -162,7 +163,10 @@ wl_seat_get_pointer(wl_client *client, wl_resource *wl_seat, uint32_t id) {
 
   auto wl_pointer = make_resource<wl_pointer_t>(
     client, wl_pointer_interface, wl_pointer_impl, wl_resource_get_version(wl_seat), id, seat);
-  wl_pointer->on_destruct.connect([](auto &resource) { resource.seat->pointer = nullptr; });
+  wl_pointer->on_destruct.connect([](auto &resource) {
+    resource.seat->pointer = nullptr;
+    return signal_action_t::eOk;
+  });
   seat->pointer = wl_pointer;
 }
 
@@ -180,7 +184,10 @@ wl_seat_get_keyboard(wl_client *client, wl_resource *wl_seat, uint32_t id) {
 
   auto wl_keyboard = make_resource<wl_keyboard_t>(
     client, wl_keyboard_interface, wl_keyboard_impl, wl_resource_get_version(wl_seat), id, seat);
-  wl_keyboard->on_destruct.connect([](auto &resource) { resource.seat->pointer = nullptr; });
+  wl_keyboard->on_destruct.connect([](auto &resource) {
+    resource.seat->pointer = nullptr;
+    return signal_action_t::eOk;
+  });
   seat->keyboard = wl_keyboard;
 
   auto &keymap_string = seat->interface->compositor.keyboard.xkb.keymap_string;

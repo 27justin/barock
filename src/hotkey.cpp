@@ -103,8 +103,10 @@ hotkey_t::hotkey_t(input_manager_t &input) {
   state  = input.xkb.state;
   keymap = input.xkb.keymap;
 
-  input.on_keyboard_input.connect(
-    [this, &input](auto key) { this->on_keyboard_input(key, input); });
+  input.on_keyboard_input.connect([this, &input](auto key) {
+    this->on_keyboard_input(key, input);
+    return signal_action_t::eOk;
+  });
 }
 
 bool

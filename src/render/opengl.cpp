@@ -283,6 +283,7 @@ quad(const gl_shader_t &shader, GLuint texture) {
 
 void
 gl_renderer_t::draw(surface_t &surface, const fpoint_t &screen_position) {
+  glViewport(0, 0, mode_.width(), mode_.height());
   if (surface.state.buffer) {
     GLuint texture = upload_texture(*surface.state.buffer);
     GL_CHECK;

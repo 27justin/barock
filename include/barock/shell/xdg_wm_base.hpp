@@ -32,6 +32,8 @@ namespace barock {
 
     fpoint_t position, size; ///< Position & size of the surface
 
+    output_t *output;
+
     struct {
       signal_t<void> on_geometry_change;
     } events;
@@ -64,6 +66,11 @@ namespace barock {
     wl_display *display_;
     wl_global  *global;
 
+    struct {
+      signal_t<shared_t<xdg_surface_t>> on_surface_new;
+      signal_t<xdg_toplevel_t &>        on_toplevel_new;
+    } events;
+
     xdg_shell_t(wl_display       *display,
                 input_manager_t  &input,
                 output_manager_t &output,
@@ -91,9 +98,10 @@ namespace barock {
     static void
     bind(wl_client *, void *, uint32_t, uint32_t);
 
-    void
+    signal_action_t
     on_output_new(output_t &);
-    void
+
+    signal_action_t
     paint(output_t &);
   };
 }

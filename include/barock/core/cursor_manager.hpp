@@ -46,7 +46,7 @@ namespace barock {
     bool
     transfer(const direction_t &);
 
-    void
+    signal_action_t
     paint(output_t &);
 
     public:
@@ -61,9 +61,9 @@ namespace barock {
     const fpoint_t &
     position(const fpoint_t &value);
 
-    void on_mouse_move(mouse_event_t);
-    void on_mouse_click(mouse_button_t);
-    void on_mouse_scroll(mouse_axis_t);
+    signal_action_t on_mouse_move(mouse_event_t);
+    signal_action_t on_mouse_click(mouse_button_t);
+    signal_action_t on_mouse_scroll(mouse_axis_t);
 
     /**
      * @brief Set the output the cursor is on. This function warps the

@@ -89,11 +89,13 @@ cursor_manager_t::cursor_manager_t(output_manager_t &output, input_manager_t &in
 
   texture_ = XcursorLibraryLoadImage("left_ptr", nullptr, 32);
 
-  output_manager_.events.on_mode_set.connect(
-    [this] { set_output(output_manager_.outputs()[0].get()); });
+  output_manager_.events.on_mode_set.connect([this] {
+    set_output(output_manager_.outputs()[0].get());
+    return signal_action_t::eDelete;
+  });
 }
 
-void
+signal_action_t
 cursor_manager_t::paint(output_t &output) {
   fpoint_t screen = output.to<output_t::eWorkspace, output_t::eScreenspace>(position_);
 
@@ -107,6 +109,8 @@ cursor_manager_t::paint(output_t &output) {
       }
     },
     texture_);
+
+  return signal_action_t::eOk;
 }
 
 void
@@ -139,7 +143,7 @@ cursor_manager_t::current_output() {
   return *output_;
 }
 
-void
+signal_action_t
 cursor_manager_t::on_mouse_move(mouse_event_t move) {
   enum libinput_event_type ty = libinput_event_get_type(move.event);
   // Our `on_mouse_move` signal triggers on two separate libinput events:
@@ -230,12 +234,17 @@ cursor_manager_t::on_mouse_move(mouse_event_t move) {
 
   // First figure out whether a surface currently has mouse focus.
   if (auto focus = focus_.lock()) {
-    return;
+    return signal_action_t::eOk;
   }
+  return signal_action_t::eOk;
 }
 
-void
-cursor_manager_t::on_mouse_click(mouse_button_t event) {}
+signal_action_t
+cursor_manager_t::on_mouse_click(mouse_button_t event) {
+  return signal_action_t::eOk;
+}
 
-void
-cursor_manager_t::on_mouse_scroll(mouse_axis_t event) {}
+signal_action_t
+cursor_manager_t::on_mouse_scroll(mouse_axis_t event) {
+  return signal_action_t::eOk;
+}

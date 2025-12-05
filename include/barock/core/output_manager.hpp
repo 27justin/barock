@@ -31,6 +31,9 @@ namespace barock {
     std::vector<shared_t<output_t>> &
     outputs();
 
+    jsl::optional_t<output_t &>
+    by_name(const std::string &connector_name);
+
     struct {
       signal_t<void>       on_mode_set;
       signal_t<output_t &> on_output_new;

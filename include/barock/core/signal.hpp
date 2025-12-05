@@ -11,10 +11,12 @@
 namespace barock {
   using signal_token_t = int;
 
+  enum class signal_action_t { eOk = 0, eStopPropagation, eDelete };
+
   template<typename... Args>
   struct signal_t {
     private:
-    std::map<signal_token_t, std::function<void(Args...)>> listeners;
+    std::map<signal_token_t, std::function<signal_action_t(Args...)>> listeners;
 
     public:
     signal_t() {};
@@ -25,7 +27,7 @@ namespace barock {
     signal_t(const signal_t &) = delete;
 
     signal_token_t
-    connect(std::function<void(Args...)> cb) {
+    connect(std::function<signal_action_t(Args...)> cb) {
       signal_token_t tok = 0;
       if (listeners.size() > 0)
         tok = listeners.rbegin()->first + 1;
@@ -36,13 +38,39 @@ namespace barock {
 
     void
     disconnect(signal_token_t token) {
-      listeners.erase(token);
+      if (listeners.contains(token))
+        listeners.erase(token);
     }
 
     void
     emit(Args... args) {
-      for (auto const &[_, cb] : listeners) {
-        cb(args...);
+      auto it = listeners.begin();
+
+      while (it != listeners.end()) {
+        auto            current_token = it->first;
+        signal_action_t action        = it->second(args...);
+
+        // The callback might invalidate our iterator, if it itself
+        // disconnects some other signals, therefore we have to
+        // pre-emptively restore `it'.
+        auto next_it = listeners.upper_bound(current_token);
+
+        // Stop propagation, well... stops the propagation of the
+        // event.
+        if (action == signal_action_t::eStopPropagation) {
+          return;
+        }
+
+        // Delete removes it from the listeners list.
+        if (action == signal_action_t::eDelete) {
+          // Check if it still exists before trying to erase
+          // (It might have been deleted inside the callback via disconnect)
+          auto current_node = listeners.find(current_token);
+          if (current_node != listeners.end()) {
+            listeners.erase(current_node);
+          }
+        }
+        it = next_it;
       }
     }
 
@@ -59,7 +87,7 @@ namespace barock {
   template<>
   struct signal_t<void> {
     private:
-    using _Listener = std::function<void()>;
+    using _Listener = std::function<signal_action_t()>;
     std::map<signal_token_t, _Listener> listeners;
 
     public:
@@ -93,8 +121,34 @@ namespace barock {
 
     void
     emit() {
-      for (const auto &[_, cb] : listeners)
-        cb();
+      auto it = listeners.begin();
+
+      while (it != listeners.end()) {
+        auto            current_token = it->first;
+        signal_action_t action        = it->second();
+
+        // The callback might invalidate our iterator, if it itself
+        // disconnects some other signals, therefore we have to
+        // pre-emptively restore `it'.
+        auto next_it = listeners.upper_bound(current_token);
+
+        // Stop propagation, well... stops the propagation of the
+        // event.
+        if (action == signal_action_t::eStopPropagation) {
+          return;
+        }
+
+        // Delete removes it from the listeners list.
+        if (action == signal_action_t::eDelete) {
+          // Check if it still exists before trying to erase
+          // (It might have been deleted inside the callback via disconnect)
+          auto current_node = listeners.find(current_token);
+          if (current_node != listeners.end()) {
+            listeners.erase(current_node);
+          }
+        }
+        it = next_it;
+      }
     }
   };
 

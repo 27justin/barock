@@ -1,4 +1,5 @@
 #include "barock/core/input.hpp"
+#include "barock/core/signal.hpp"
 #include "barock/resource.hpp"
 
 #include "barock/core/shm_pool.hpp"
@@ -28,19 +29,22 @@ namespace barock {
     : xdg_surface(base)
     , xdg_toplevel_data_t(prop_data) {
 
-    // Attach on_buffer_attach listener to resize the window
+    // Attach on_buffer_attach listener to resize the window & send
+    // the new toplevel event.
+    //
+    // TODO: This crashes, if the xdg_toplevel is freed, but the
+    // surface stays alive and gets repurposed, then once the new
+    // use-case for the surface attaches a buffer, the event will be
+    // called, even though `this` was already invalidated.
     listeners.on_buffer_attach = base->surface.lock()->events.on_buffer_attach.connect(
-      [this, surface = this->xdg_surface, &on_buffer_attach = this->listeners.on_buffer_attach](
-        const shm_buffer_t &buf) mutable {
-        xdg_surface.lock()->size = { static_cast<float>(buf.width),
-                                     static_cast<float>(buf.height) };
+      [this, surface = base](const shm_buffer_t &buf) mutable {
+        surface->size = { static_cast<float>(buf.width), static_cast<float>(buf.height) };
 
-        // Immediately disconnect, we only resize once to fit.
-        if (auto xdg_surface = surface.lock()) {
-          if (auto wl_surface = xdg_surface->surface.lock()) {
-            wl_surface->events.on_buffer_attach.disconnect(on_buffer_attach);
-          }
-        }
+        // Also call the on_toplevel_new event now
+        surface->shell.events.on_toplevel_new.emit(*this);
+
+        // Return eDelete, this invalidates this listener.
+        return signal_action_t::eDelete;
       });
   }
 
@@ -53,14 +57,14 @@ namespace barock {
 
 void
 xdg_toplevel_set_title(wl_client *client, wl_resource *xdg_toplevel, const char *title) {
-  auto surface        = from_wl_resource<xdg_toplevel_t>(xdg_toplevel);
-  surface->data.title = title;
+  auto surface   = from_wl_resource<xdg_toplevel_t>(xdg_toplevel);
+  surface->title = title;
 }
 
 void
 xdg_toplevel_set_app_id(wl_client *client, wl_resource *xdg_toplevel, const char *app_id) {
-  auto surface         = from_wl_resource<xdg_toplevel_t>(xdg_toplevel);
-  surface->data.app_id = app_id;
+  auto surface    = from_wl_resource<xdg_toplevel_t>(xdg_toplevel);
+  surface->app_id = app_id;
 }
 
 void

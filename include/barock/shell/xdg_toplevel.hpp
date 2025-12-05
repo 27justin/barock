@@ -20,7 +20,6 @@ namespace barock {
     : public xdg_base_role_t
     , public xdg_toplevel_data_t {
     public:
-    xdg_toplevel_data_t               data;
     weak_t<resource_t<xdg_surface_t>> xdg_surface;
 
     struct {

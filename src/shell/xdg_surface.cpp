@@ -33,7 +33,7 @@ namespace barock {
   used.
 */
 void
-get_toplevel(wl_client *client, wl_resource *xdg_surface, uint32_t id) {
+xdg_surface_get_toplevel(wl_client *client, wl_resource *xdg_surface, uint32_t id) {
   // Retrieve the surface_t we got from our compositor.
   auto surface = from_wl_resource<xdg_surface_t>(xdg_surface);
 
@@ -64,12 +64,14 @@ get_toplevel(wl_client *client, wl_resource *xdg_surface, uint32_t id) {
   wl_array_release(&states);
 
   // Once we have the toplevel, we move it to the current output.
-  auto &output = surface->shell.cursor_manager.current_output();
-  output.metadata.get<xdg_window_list_t>().emplace_back(surface);
+  auto &output    = surface->shell.cursor_manager.current_output();
+  surface->output = &output;
+  auto &windows   = output.metadata.get<xdg_window_list_t>();
+  windows.insert(windows.begin(), surface);
 }
 
 void
-ack_configure(wl_client *, wl_resource *surface, uint32_t id) {
+xdg_surface_ack_configure(wl_client *, wl_resource *surface, uint32_t id) {
   INFO("xdg_surface::ack_configure");
 }
 
@@ -96,11 +98,11 @@ void
 xdg_surface_destroy(wl_client *, wl_resource *);
 
 struct xdg_surface_interface xdg_surface_impl = { .destroy      = xdg_surface_destroy,
-                                                  .get_toplevel = get_toplevel,
+                                                  .get_toplevel = xdg_surface_get_toplevel,
                                                   .get_popup    = nullptr,
                                                   .set_window_geometry =
                                                     xdg_surface_set_window_geometry,
-                                                  .ack_configure = ack_configure };
+                                                  .ack_configure = xdg_surface_ack_configure };
 
 void
 xdg_surface_destroy(wl_client *, wl_resource *wl_xdg_surface) {

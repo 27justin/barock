@@ -10,6 +10,7 @@
 #include <jsl/optional.hpp>
 #include <jsl/result.hpp>
 
+#include <algorithm>
 #include <xf86drmMode.h>
 
 using namespace barock;
@@ -143,6 +144,27 @@ cfun_configure_output(int32_t argc, Janet *argv) {
   return janet_wrap_true();
 }
 
+JANET_CFUN(cfun_output_get) {
+  janet_fixarity(argc, 1);
+
+  auto connector_name = janet_getkeyword(argv, 0);
+
+  auto interop = singleton_t<janet_interop_t>::get();
+  auto output  = interop.compositor->output->by_name((const char *)connector_name);
+  if (output.valid() == false) {
+    return janet_wrap_nil();
+  }
+
+  JanetTable *table = janet_table(3);
+
+  janet_table_put(table, janet_ckeywordv("width"), janet_wrap_integer(output->mode().width()));
+  janet_table_put(table, janet_ckeywordv("height"), janet_wrap_integer(output->mode().height()));
+  janet_table_put(
+    table, janet_ckeywordv("refresh-rate"), janet_wrap_number(output->mode().refresh_rate()));
+
+  return janet_wrap_table(table);
+}
+
 output_manager_t::output_manager_t(minidrm::drm::handle_t handle)
   : handle_(handle)
   , crtc_planner_(handle) {
@@ -162,8 +184,11 @@ output_manager_t::output_manager_t(minidrm::drm::handle_t handle)
   auto                     &interop              = singleton_t<janet_interop_t>::get();
   constexpr static JanetReg output_manager_fns[] = {
     { "configure-output",
-     cfun_configure_output, "(configure-output output parameters)\n\nConfigure `output' with parameters"       },
-    {            nullptr, nullptr,                                                                      nullptr }
+     cfun_configure_output,        "(configure-output output parameters)\n\nConfigure `output' with parameters"       },
+    {       "output/get",
+     cfun_output_get, "(output/get connector-name)\n\nReturn an object containing information about the output at "
+ "connector `connector-name'.\nReturns nil, when the output couldn't be found."                  },
+    {            nullptr, nullptr,                                                                             nullptr }
   };
 
   janet_cfuns(interop.env, "barock", output_manager_fns);
@@ -176,8 +201,13 @@ output_manager_t::mode_set() {
   // previously (requires the config to have ran)
   TRACE("Performing mode-set on {} outputs", outputs_.size());
   for (auto &output : outputs_) {
-    output->renderer(
-      gl_renderer_t{ output->mode_, crtc_planner_.mode_set(output->connector_, output->mode_) });
+    auto mode = output->mode_;
+    TRACE("Initializing {} with {}x{} @ {}",
+          output->connector().type(),
+          mode.width(),
+          mode.height(),
+          mode.refresh_rate());
+    output->renderer(gl_renderer_t{ mode, crtc_planner_.mode_set(output->connector_, mode) });
   }
   events.on_mode_set.emit();
 }
@@ -195,4 +225,18 @@ output_manager_t::outputs() {
 void
 output_manager_t::configure(output_t &output, minidrm::drm::mode_t mode) {
   output.mode_ = mode;
+}
+
+jsl::optional_t<output_t &>
+output_manager_t::by_name(const std::string &connector_name) {
+  jsl::optional_t<output_t &> value = jsl::nullopt;
+
+  auto it = std::find_if(outputs_.begin(), outputs_.end(), [&connector_name](auto &output) {
+    return output->connector().type() == connector_name;
+  });
+
+  if (it != outputs_.end())
+    value.emplace(**it);
+
+  return value;
 }

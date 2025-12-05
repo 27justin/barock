@@ -66,6 +66,28 @@ cfun_run_command(int argc, Janet *argv) {
   return janet_wrap_integer((int)pid);
 }
 
+static Janet
+cfun_add_hook(int argc, Janet *argv) {
+  janet_fixarity(argc, 2);
+  auto &interop = singleton_t<janet_interop_t>::get();
+
+  auto  event_symbol = janet_getsymbol(argv, 0);
+  Janet event_list{};
+  janet_resolve(interop.env, event_symbol, &event_list);
+
+  if (janet_type(event_list) != JANET_ARRAY) {
+    // TODO: Gracefully handle failure
+    throw std::runtime_error{ "Expected type to be array" };
+  }
+
+  auto callback = janet_getfunction(argv, 1);
+
+  janet_gcroot(janet_wrap_function(callback));
+  janet_array_push(janet_unwrap_array(event_list), janet_wrap_function(callback));
+
+  return janet_wrap_nil();
+}
+
 compositor_t::compositor_t(minidrm::drm::handle_t drm_handle, const std::string &seat)
   : drm_handle(drm_handle)
   , input() {
@@ -119,10 +141,13 @@ compositor_t::compositor_t(minidrm::drm::handle_t drm_handle, const std::string 
   event_bus = make_unique<event_bus_t>();
 
   constexpr static JanetReg compositor_fns[] = {
+    {    "add-hook",
+     &cfun_add_hook,
+     "(add-hook event fn)\n\nAdd a hook to the given `event', calling `fn' when it triggers."         },
     { "run-command",
      &cfun_run_command,
-     "(run-command string)\n\nRun command supplied via `string', and run via `sh -c`."      },
-    {       nullptr, nullptr,                                                        nullptr }
+     "(run-command string)\n\nRun command supplied via `string', and run via `sh -c`."                },
+    {       nullptr, nullptr,                                                                  nullptr }
   };
   janet_cfuns(context_, "barock", compositor_fns);
 }

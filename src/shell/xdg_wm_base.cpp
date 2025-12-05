@@ -4,8 +4,10 @@
 #include "barock/core/renderer.hpp"
 #include "barock/core/shm_pool.hpp"
 #include "barock/core/surface.hpp"
+#include "barock/script/janet.hpp"
 #include "barock/shell/xdg_surface.hpp"
 #include "barock/shell/xdg_toplevel.hpp"
+#include "barock/singleton.hpp"
 
 #include "../log.hpp"
 #include "wl/xdg-shell-protocol.h"
@@ -21,6 +23,73 @@ xdg_wm_base_get_xdg_surface(wl_client   *client,
                             wl_resource *xdg_wm_base,
                             uint32_t     id,
                             wl_resource *wl_surface);
+
+static Janet
+to_janet(xdg_toplevel_t &window) {
+  auto surface = window.xdg_surface.lock();
+  if (!surface)
+    return janet_wrap_nil();
+
+  JanetTable *table = janet_table(1);
+
+  janet_table_put(table, janet_ckeywordv("app-id"), janet_cstringv(window.app_id.c_str()));
+  janet_table_put(table, janet_ckeywordv("title"), janet_cstringv(window.title.c_str()));
+  janet_table_put(
+    table, janet_ckeywordv("output"), janet_ckeywordv(surface->output->connector().type().c_str()));
+
+  Janet *position = janet_tuple_begin(2);
+  position[0]     = janet_wrap_number(surface->position.x);
+  position[1]     = janet_wrap_number(surface->position.y);
+
+  Janet *size = janet_tuple_begin(2);
+  size[0]     = janet_wrap_number(surface->size.x);
+  size[1]     = janet_wrap_number(surface->size.y);
+
+  Janet *offset = janet_tuple_begin(2);
+  offset[0]     = janet_wrap_number(surface->offset.x);
+  offset[1]     = janet_wrap_number(surface->offset.y);
+
+  janet_table_put(table, janet_ckeywordv("position"), janet_wrap_tuple(janet_tuple_end(position)));
+  janet_table_put(table, janet_ckeywordv("size"), janet_wrap_tuple(janet_tuple_end(size)));
+  janet_table_put(table, janet_ckeywordv("offset"), janet_wrap_tuple(janet_tuple_end(offset)));
+
+  return janet_wrap_table(table);
+}
+
+JANET_CFUN(cfun_xdg_set_position) {
+  janet_fixarity(argc, 3);
+
+  auto table = janet_gettable(argv, 0);
+  auto x     = janet_getinteger(argv, 1);
+  auto y     = janet_getinteger(argv, 2);
+
+  auto connector = janet_table_get(table, janet_ckeywordv("output"));
+  auto app_id    = janet_table_get(table, janet_ckeywordv("app-id"));
+
+  // Find the window on (get table :output)
+  auto &interop = singleton_t<janet_interop_t>::get();
+  auto  output  = interop.compositor->output->by_name((const char *)janet_unwrap_string(connector));
+  if (output.valid() == false) {
+    return janet_wrap_nil();
+  }
+
+  auto &window_list = output->metadata.get<xdg_window_list_t>();
+  auto  window = std::find_if(window_list.begin(), window_list.end(), [app_id](auto xdg_surface) {
+    if (xdg_surface->role != xdg_role_t::eToplevel)
+      return false;
+    return shared_cast<xdg_toplevel_t>(xdg_surface->role_impl)->app_id ==
+           (const char *)janet_unwrap_string(app_id);
+  });
+
+  if (window == window_list.end()) {
+    ERROR("Tried to set position on window that couldn't be found.");
+    return janet_wrap_nil();
+  }
+
+  (*window)->position.x = x;
+  (*window)->position.y = y;
+  return janet_wrap_true();
+}
 
 struct xdg_wm_base_interface xdg_wm_base_impl = {
   .destroy           = xdg_wm_base_destroy,
@@ -48,9 +117,48 @@ namespace barock {
     }
     output.events.on_output_new.connect(
       std::bind(&xdg_shell_t::on_output_new, this, std::placeholders::_1));
+
+    // Expose XDG functions to janet
+    auto &interop = singleton_t<janet_interop_t>::get();
+
+    constexpr static JanetReg xdg_fns[] = {
+      { "xdg/set-position",
+       cfun_xdg_set_position, "(xdg/set-position window-table)\n\nSet the position of the window on the workspace (in "
+ "workspace local coordinates.)"              },
+      {            nullptr, nullptr,                                nullptr }
+    };
+
+    janet_cfuns(interop.env, "barock", xdg_fns);
+
+    // Hooks
+    janet_def(interop.env, "xdg-window-new", janet_wrap_array(janet_array(0)), "Event list");
+
+    // Dispatchers
+    events.on_toplevel_new.connect([interop](auto toplevel) {
+      Janet value;
+      janet_resolve(interop.env, janet_csymbol("xdg-window-new"), &value);
+
+      if (janet_type(value) != JANET_ARRAY) {
+        // TODO: Gracefully handle failure
+        throw std::runtime_error{ "Expected type to be array" };
+      }
+
+      Janet window = to_janet(toplevel);
+
+      JanetArray *array = janet_unwrap_array(value);
+      for (int32_t i = 0; i < array->count; ++i) {
+        assert(janet_type(array->data[i]) == JANET_FUNCTION);
+
+        JanetFunction *cb    = janet_unwrap_function(array->data[i]);
+        JanetFiber    *fiber = janet_fiber(cb, 1, 1, &window);
+        Janet          value;
+        janet_continue(fiber, janet_wrap_nil(), &value);
+      }
+      return signal_action_t::eOk;
+    });
   }
 
-  void
+  signal_action_t
   xdg_shell_t::on_output_new(output_t &output) {
     // The XDG shell holds a list of windows for each output, this has
     // to be initialzied on every monitor, which is what this function
@@ -60,18 +168,23 @@ namespace barock {
     // We also have to attach our `repaint` listener, that actually draws the windows
     output.events.on_repaint[XDG_SHELL_PAINT_LAYER].connect(
       std::bind(&xdg_shell_t::paint, this, std::placeholders::_1));
+    return signal_action_t::eOk;
   }
 
-  void
+  signal_action_t
   xdg_shell_t::paint(output_t &output) {
     auto renderer = &output.renderer();
 
     auto &windows = output.metadata.get<xdg_window_list_t>();
     for (auto &xdg_surface : windows) {
       if (auto surface = xdg_surface->surface.lock(); surface) {
-        renderer->draw(*surface, xdg_surface->position - xdg_surface->offset);
+        auto position = output.to<output_t::eWorkspace, output_t::eScreenspace>(
+          xdg_surface->position - xdg_surface->offset);
+
+        renderer->draw(*surface, position);
       }
     }
+    return signal_action_t::eOk;
   }
 
   void
