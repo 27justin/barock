@@ -1,6 +1,7 @@
 #pragma once
 
 #include "barock/core/output.hpp"
+#include "barock/core/signal.hpp"
 #include "barock/resource.hpp"
 #include "jsl/optional.hpp"
 #include "minidrm.hpp"
@@ -29,5 +30,10 @@ namespace barock {
 
     std::vector<shared_t<output_t>> &
     outputs();
+
+    struct {
+      signal_t<void>       on_mode_set;
+      signal_t<output_t &> on_output_new;
+    } events;
   };
 }

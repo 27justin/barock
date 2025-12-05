@@ -2,21 +2,23 @@
 #include "barock/core/cursor_manager.hpp"
 #include "barock/core/event_loop.hpp"
 #include "barock/core/input.hpp"
+#include "barock/core/shm.hpp"
 #include "barock/core/wl_compositor.hpp"
 #include "barock/hotkey.hpp"
 #include "barock/render/opengl.hpp"
 #include "barock/resource.hpp"
 #include "barock/script/janet.hpp"
+#include "barock/shell/xdg_wm_base.hpp"
 #include "barock/singleton.hpp"
 #include "barock/util.hpp"
 #include "log.hpp"
 
-#include <spawn.h>
 #include <wayland-egl-backend.h>
 #include <wayland-server-core.h>
 #include <wayland-util.h>
 
 #include <fstream>
+#include <spawn.h>
 #include <sstream>
 
 using namespace barock;
@@ -69,15 +71,14 @@ compositor_t::compositor_t(minidrm::drm::handle_t drm_handle, const std::string 
   , input() {
   using std::make_unique;
 
-  janet_init();
-
-  context_ = janet_core_env(nullptr);
-  singleton_t<janet_interop_t>::ensure(janet_interop_t{ .env = context_, .compositor = this });
-
   display_ = wl_display_create();
   wl_display_add_socket(display_, nullptr);
 
   auto wl_event_loop = wl_display_get_event_loop(display_);
+
+  janet_init();
+  context_ = janet_core_env(nullptr);
+  singleton_t<janet_interop_t>::ensure(janet_interop_t{ .env = context_, .compositor = this });
 
   TRACE("* Initializing Event Loop");
   event_loop = make_unique<event_loop_t>(wl_event_loop);
@@ -102,15 +103,26 @@ compositor_t::compositor_t(minidrm::drm::handle_t drm_handle, const std::string 
   TRACE("* Initializing Hotkey Manager");
   hotkey = make_unique<hotkey_t>(*input);
 
-  TRACE("* Initializing wl_compositor protocol");
+  TRACE("* Initializing `wl_compositor` Protocol");
   wl_compositor = make_unique<wl_compositor_t>(display_);
+
+  TRACE("* Initializing `wl_subcompositor` Protocol");
+  wl_subcompositor = make_unique<wl_subcompositor_t>(display_, *wl_compositor);
+
+  TRACE("* Initializing `wl_shm` Protocol");
+  shm = make_unique<shm_t>(display_);
+
+  TRACE("* Initializing XDG Shell Protocol");
+  xdg_shell = make_unique<xdg_shell_t>(display_, *input, *output, *cursor);
+
+  TRACE("* Initializing Event Bus");
+  event_bus = make_unique<event_bus_t>();
 
   constexpr static JanetReg compositor_fns[] = {
     { "run-command",
      &cfun_run_command,
-     "(run-command array)\n\nRun command supplied via `array', array is joined via ' ' and then "
-     "sent to a shell."              },
-    {       nullptr, nullptr, nullptr }
+     "(run-command string)\n\nRun command supplied via `string', and run via `sh -c`."      },
+    {       nullptr, nullptr,                                                        nullptr }
   };
   janet_cfuns(context_, "barock", compositor_fns);
 }

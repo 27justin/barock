@@ -14,15 +14,18 @@ namespace barock {
 
   struct xdg_toplevel_data_t {
     std::string title, app_id;
-    int         width, height;
   };
 
-  struct xdg_toplevel_t : public xdg_base_role_t {
+  struct xdg_toplevel_t
+    : public xdg_base_role_t
+    , public xdg_toplevel_data_t {
     public:
     xdg_toplevel_data_t               data;
     weak_t<resource_t<xdg_surface_t>> xdg_surface;
 
-    signal_token_t on_buffer_attach;
+    struct {
+      signal_token_t on_buffer_attach;
+    } listeners;
 
     xdg_toplevel_t(shared_t<resource_t<xdg_surface_t>>, const xdg_toplevel_data_t &data);
     ~xdg_toplevel_t();

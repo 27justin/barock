@@ -515,51 +515,6 @@ void main() {
 using namespace minidrm;
 using namespace barock;
 
-bool
-matches_config(const jsl::optional_t<const config_output_t &> &opt, const drm::mode_t &drm_mode) {
-  // If we have no configuration for the output, return whether or not
-  // the mode is preferred
-  if (!opt.valid())
-    return drm_mode.preferred;
-
-  // Skip modes that do not match our dimensions
-  if (opt->width != drm_mode.width() || opt->height != drm_mode.height())
-    return false;
-
-  // If we have a configured refresh rate, check that they are the
-  // same.
-  if (opt->refresh_rate.valid() && opt->refresh_rate != drm_mode.refresh_rate())
-    return false;
-
-  return true;
-}
-
-drm::mode_t
-choose_mode(const jsl::optional_t<const config_output_t &> &preferred_mode,
-            const std::vector<drm::mode_t>                 &modes) {
-  if (modes.size() == 0)
-    throw std::runtime_error("No modes");
-
-  drm::mode_t const *selected = nullptr;
-
-  // Find the mode that matches our config
-  auto it = std::find_if(modes.begin(), modes.end(), [&preferred_mode](const auto &mode) {
-    return matches_config(preferred_mode, mode);
-  });
-
-  if (it != modes.end())
-    selected = &*it;
-
-  if (it == modes.end()) {
-    CRITICAL("Couldn't find a matching mode in a list of {} modes.", modes.size());
-    std::exit(1);
-  }
-
-  return *selected;
-}
-
-#include <fstream>
-
 int
 main() {
   if (!getenv("XDG_SEAT")) {
@@ -577,218 +532,24 @@ main() {
   compositor.output->mode_set();
   initialize_egl();
 
-  // compositor.hotkey->add({
-  //   { XKB_KEY_Shift_L, XKB_KEY_C },
-  //   { XKB_VMOD_NAME_ALT },
-  //   [&] {
-  //     if (auto pointer_surface = compositor.pointer.focus.lock(); pointer_surface) {
-  //       barock::shared_t<barock::resource_t<barock::surface_t>> surface = pointer_surface;
-  //       if (!surface->has_role() ||
-  //           (surface->has_role() && surface->role->type_id() != barock::xdg_surface_t::id())) {
-  //         surface = pointer_surface->find_parent([](auto &surface) {
-  //           return surface->role && surface->role->type_id() == barock::xdg_surface_t::id();
-  //         });
-  //       }
-
-  //       // Get its position
-  //       auto position = surface->position();
-  //       auto size     = surface->full_extent();
-
-  //       double center_x = position.x + size.w / 2.;
-  //       double center_y = position.y + size.h / 2.;
-
-  //       compositor.x = center_x - (1280. / compositor.zoom) / 2.;
-  //       compositor.y = center_y - (800. / compositor.zoom) / 2.;
-  //     }
-  //    }
-  // });
-
-  // compositor.hotkey->add({
-  //   { MOUSE_PRESSED | MOUSE_HOTKEY_MASK, BTN_LEFT },
-  //   { XKB_VMOD_NAME_ALT },
-  //   [&]() {
-  //     compositor.move_global_workspace = true;
-  //    }
-  // });
-
-  // compositor.hotkey->add({
-  //   { MOUSE_RELEASED | MOUSE_HOTKEY_MASK, BTN_LEFT },
-  //   { XKB_VMOD_NAME_ALT },
-  //   [&]() {
-  //     compositor.move_global_workspace = false;
-  //    }
-  // });
-
-  // compositor.hotkey->add({ { XKB_KEY_Return }, { XKB_VMOD_NAME_ALT }, [&]() {
-  //                           run_command("foot");
-  //                         } });
-
-  // compositor.hotkey->add({ { XKB_KEY_Escape }, {}, [] {
-  //                           std::exit(0);
-  //                         } });
-
-  // compositor.hotkey->add({ { XKB_KEY_r }, { XKB_VMOD_NAME_ALT }, [&] {
-  //                           compositor.zoom = 1.0;
-  //                         } });
-
-  // auto do_scroll = [](barock::compositor_t &compositor, double zoom_delta) {
-  //   double old_zoom = compositor.zoom;
-  //   double new_zoom = std::max(old_zoom + zoom_delta, 0.025);
-
-  //   // Current cursor position in workspace space
-  //   double cursor_ws_x = compositor.cursor.x;
-  //   double cursor_ws_y = compositor.cursor.y;
-
-  //   // Screen space position of cursor before zoom
-  //   double cursor_screen_x = (cursor_ws_x - compositor.x) * old_zoom;
-  //   double cursor_screen_y = (cursor_ws_y - compositor.y) * old_zoom;
-
-  //   compositor.zoom = new_zoom;
-
-  //   // Adjust camera so that the cursor stays at same screen
-  //   // position
-  //   compositor.x = cursor_ws_x - cursor_screen_x / new_zoom;
-  //   compositor.y = cursor_ws_y - cursor_screen_y / new_zoom;
-
-  //   return;
-  // };
-
-  // compositor.hotkey->add({ { MOUSE_HOTKEY_MASK | MWHEEL_DOWN }, { XKB_VMOD_NAME_ALT }, [&] {
-  //                           do_scroll(compositor, -0.02);
-  //                         } });
-
-  // compositor.hotkey->add({ { MOUSE_HOTKEY_MASK | MWHEEL_UP }, { XKB_VMOD_NAME_ALT }, [&] {
-  //                           do_scroll(compositor, 0.02);
-  //                         } });
-
-  // compositor.input->on_keyboard_input.connect([&](const barock::keyboard_event_t &key) {
-  //   uint32_t scancode  = libinput_event_keyboard_get_key(key.keyboard);
-  //   uint32_t key_state = libinput_event_keyboard_get_key_state(key.keyboard);
-
-  //   xkb_state_update_key(compositor.keyboard.xkb.state,
-  //                        scancode + 8, // +8: evdev -> xkb
-  //                        key_state == LIBINPUT_KEY_STATE_PRESSED ? XKB_KEY_DOWN : XKB_KEY_UP);
-
-  //   xkb_keysym_t sym = xkb_state_key_get_one_sym(compositor.keyboard.xkb.state, scancode + 8);
-  //   if (key_state == LIBINPUT_KEY_STATE_PRESSED && compositor.hotkey->feed(sym)) {
-  //     return;
-  //   }
-
-  //   if (auto surface = compositor.keyboard.focus.lock(); surface) {
-  //     xkb_mod_mask_t depressed =
-  //       xkb_state_serialize_mods(compositor.keyboard.xkb.state, XKB_STATE_MODS_DEPRESSED);
-  //     xkb_mod_mask_t latched =
-  //       xkb_state_serialize_mods(compositor.keyboard.xkb.state, XKB_STATE_MODS_LATCHED);
-  //     xkb_mod_mask_t locked =
-  //       xkb_state_serialize_mods(compositor.keyboard.xkb.state, XKB_STATE_MODS_LOCKED);
-  //     xkb_layout_index_t group =
-  //       xkb_state_serialize_layout(compositor.keyboard.xkb.state, XKB_STATE_LAYOUT_EFFECTIVE);
-
-  //     // Send the modifiers to the focused client
-  //     compositor.keyboard.send_modifiers(surface, depressed, latched, locked, group);
-  //     compositor.keyboard.send_key(surface, scancode, key_state);
-  //     return;
-  //   }
-  // });
-
-  // compositor.input->on_mouse_button.connect([&](const auto &btn) {
-  //   auto &cursor = compositor.cursor;
-
-  //   auto mouse_designator = btn.state == barock::mouse_button_t::pressed
-  //                           ? MOUSE_PRESSED | MOUSE_HOTKEY_MASK
-  //                           : MOUSE_RELEASED | MOUSE_HOTKEY_MASK;
-  //   compositor.hotkey->feed(mouse_designator);
-  //   if (compositor.hotkey->feed(btn.button)) {
-  //     return;
-  //   }
-
-  //   if (auto pointer_surface = compositor.pointer.focus.lock(); pointer_surface) {
-  //     compositor.pointer.send_button(pointer_surface, btn.button, btn.state);
-
-  //     // Our pointer may be focused on a subsurface, in which case we
-  //     // first have to determine the actual `xdg_surface` to activate.
-  //     barock::shared_t<barock::resource_t<barock::surface_t>> surface = pointer_surface;
-  //     if (!surface->has_role() ||
-  //         (surface->has_role() && surface->role->type_id() != barock::xdg_surface_t::id())) {
-  //       surface = pointer_surface->find_parent([](auto &surface) {
-  //         return surface->role && surface->role->type_id() == barock::xdg_surface_t::id();
-  //       });
-  //     }
-
-  //     // On left mouse button, we try to activate the window, and move
-  //     // the keyboard focus to `surface`
-  //     if (btn.button == BTN_LEFT) {
-  //       if (auto active_surface = compositor.window.activated.lock()) {
-  //         // Active surface differs from pointer focus, move active
-  //         // state to our `surface`
-  //         if (active_surface != surface) {
-  //           // First deactivate whatever is currently activated.
-  //           compositor.window.deactivate(active_surface);
-
-  //           // Then activate the new window
-  //           compositor.window.activate(surface);
-  //         }
-  //       } else {
-  //         // We have no active window, immediately activate
-  //         compositor.window.activate(pointer_surface);
-  //       }
-
-  //       // Now also move the keyboard focus, if it was somewhere else
-  //       // before.
-  //       if (compositor.keyboard.focus != pointer_surface) {
-  //         compositor.keyboard.set_focus(pointer_surface);
-  //       }
-  //     }
-  //     return;
-  //   } else {
-  //     // Click event without pointer focus means we clicked outside of
-  //     // any window, thus we clear keyboard focus, and remove the active state.
-  //     if (auto surface = compositor.window.activated.lock()) {
-  //       compositor.window.deactivate(surface);
-  //     }
-
-  //     // Clear the keyboard focus.
-  //     compositor.keyboard.set_focus(nullptr);
-  //   }
-  // });
-
-  // compositor.input->on_mouse_scroll.connect([&compositor](auto ev) {
-  //   if (ev.vertical > 0.0) {
-  //     if (compositor.hotkey->feed(MOUSE_HOTKEY_MASK | MWHEEL_DOWN))
-  //       return;
-  //   } else if (ev.vertical < 0.0) {
-  //     if (compositor.hotkey->feed(MOUSE_HOTKEY_MASK | MWHEEL_UP))
-  //       return;
-  //   }
-
-  //   if (auto surface = compositor.pointer.focus.lock(); surface) {
-  //     compositor.pointer.send_axis(surface, 0, ev.vertical);
-  //     compositor.pointer.send_axis(surface, 1, ev.horizontal);
-  //   }
-  // });
-
-  // std::thread([&] {
-  //   for (;;) {
-  //     // compositor.input->poll(-1);
-  //   }
-  // }).detach();
-
   wl_display    *display  = compositor.display();
   wl_event_loop *loop     = wl_display_get_event_loop(display);
   static int     throttle = 0;
 
   while (1) {
     wl_event_loop_dispatch(loop, -1); // 0 = non-blocking, -1 = blocking
-    for (auto &screen : compositor.outputs) {
+    for (auto &screen : compositor.output->outputs()) {
       screen->renderer().bind();
       screen->renderer().clear(0.08f, 0.08f, 0.15f, 1.f);
 
-      for (auto &[_, signal] : screen->on_repaint) {
+      for (auto &[_, signal] : screen->events.on_repaint) {
         signal.emit(*screen);
       }
 
       screen->renderer().commit();
     }
+
+    wl_display_flush_clients(compositor.display());
   }
 
   return 1;

@@ -3,6 +3,8 @@
 #include "barock/core/renderer.hpp"
 #include "barock/core/shm_pool.hpp"
 #include "barock/singleton.hpp"
+#include "barock/util.hpp"
+#include "wl/wayland-protocol.h"
 
 #include <GLES2/gl2.h>
 #include <GLES2/gl2ext.h>
@@ -19,7 +21,7 @@ extern "C" {
       ERROR("OpenGL Error ({}:{}): {}", __FILE__, __LINE__, err);                                  \
       printf("\n");                                                                                \
       fflush(stdout);                                                                              \
-      std::exit(0);                                                                                \
+      throw std::runtime_error{ "OpenGL Error" };                                                  \
     }                                                                                              \
   } while (0)
 
@@ -220,6 +222,9 @@ upload_texture(barock::shm_buffer_t &buffer) {
                buffer.data());
   GL_CHECK;
 
+  glPixelStorei(GL_UNPACK_ROW_LENGTH_EXT, 0);
+  GL_CHECK;
+
   return texture;
 }
 
@@ -278,28 +283,46 @@ quad(const gl_shader_t &shader, GLuint texture) {
 
 void
 gl_renderer_t::draw(surface_t &surface, const fpoint_t &screen_position) {
-  auto size = surface.full_extent();
-
   if (surface.state.buffer) {
     GLuint texture = upload_texture(*surface.state.buffer);
+    GL_CHECK;
 
     auto quad_shader = singleton_t<gl_shader_storage_t>::get().by_name("quad shader");
+    quad_shader.bind();
+    GL_CHECK;
+
     quad_shader.uniform("u_surface_position", screen_position.x, screen_position.y);
-    quad_shader.uniform("u_surface_size", size.x, size.y);
+    quad_shader.uniform(
+      "u_surface_size", surface.state.buffer->width, surface.state.buffer->height);
     quad_shader.uniform("u_screen_size", mode_.width(), mode_.height());
 
     quad(quad_shader, texture);
 
     glDeleteTextures(1, &texture);
     GL_CHECK;
+
+    for (auto &subsurface_dao : surface.state.children) {
+      if (auto subsurface = subsurface_dao->surface.lock(); subsurface) {
+        draw(*subsurface,
+             { screen_position.x + subsurface_dao->x, screen_position.y + subsurface_dao->y });
+      }
+    }
+
+    // Send the frame callback, and release the buffer back to the
+    // client.
+    if (surface.state.pending) {
+      wl_callback_send_done(surface.state.pending, current_time_msec());
+      wl_resource_destroy(surface.state.pending);
+      wl_buffer_send_release(surface.state.buffer->resource());
+      surface.state.pending = nullptr;
+    }
   }
 }
 
 void
 gl_renderer_t::draw(_XcursorImage *cursor, const fpoint_t &screen_position) {
+  assert(cursor != nullptr);
   GLuint texture = upload_texture(cursor->width, cursor->height, cursor->pixels);
-
-  glViewport(0, 0, mode_.width(), mode_.height());
 
   auto quad_shader = singleton_t<gl_shader_storage_t>::get().by_name("quad shader");
   quad_shader.bind();

@@ -22,9 +22,9 @@ struct wl_shm_interface wl_shm_impl = { .create_pool = wl_shm_create_pool,
 namespace barock {
   shm_t::~shm_t() {}
 
-  shm_t::shm_t(compositor_t &comp)
-    : compositor(comp) {
-    wl_global_create(comp.display(), &wl_shm_interface, VERSION, nullptr, bind);
+  shm_t::shm_t(wl_display *display)
+    : display(display) {
+    wl_global_create(display, &wl_shm_interface, VERSION, nullptr, bind);
   }
 
   void

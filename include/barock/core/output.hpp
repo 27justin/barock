@@ -4,6 +4,7 @@
 #include <memory>
 #include <vector>
 
+#include "barock/core/metadata.hpp"
 #include "barock/core/point.hpp"
 #include "barock/core/quad_tree.hpp"
 #include "barock/core/signal.hpp"
@@ -97,7 +98,12 @@ namespace barock {
     static constexpr coordinate_space_t eWorkspace   = coordinate_space_t::eWorkspace;
     static constexpr coordinate_space_t eScreenspace = coordinate_space_t::eScreenspace;
 
-    std::map<size_t, signal_t<output_t &>> on_repaint;
+    struct {
+      std::map<size_t, signal_t<output_t &>> on_repaint;
+    } events;
+
+    // Generic RTTI data store
+    metadata_t metadata;
 
     output_t(const minidrm::drm::connector_t &connector, const minidrm::drm::mode_t &mode);
 

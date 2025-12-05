@@ -64,7 +64,7 @@ wl_surface_damage(wl_client   *client,
                   int32_t      height) {
   auto surface = from_wl_resource<surface_t>(wl_surface);
   // surface->staging.damage += barock::region_t{ x, y, width, height };
-  WARN("Legacy damage, skipping this");
+  // WARN("Legacy damage, skipping this");
 }
 
 void

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "barock/core/metadata.hpp"
 #include "barock/core/point.hpp"
 #include "barock/core/region.hpp"
 #include "barock/core/signal.hpp"
@@ -68,7 +69,7 @@ namespace barock {
     surface_t(surface_t &&);
 
     // These are deleted to prevent copying, since surfaces are not
-    // duplicatable by nature.
+    // duplicate-able by nature.
     surface_t(const surface_t &) = delete;
 
     surface_state_t state,
@@ -79,6 +80,8 @@ namespace barock {
     struct {
       signal_t<shm_buffer_t &> on_buffer_attach;
     } events;
+
+    metadata_t metadata;
 
     void
     operator=(const surface_t &) = delete;

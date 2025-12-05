@@ -1,6 +1,7 @@
 #pragma once
 
 #include "barock/compositor.hpp"
+#include "barock/core/output_manager.hpp"
 #include "barock/core/point.hpp"
 #include "barock/core/surface.hpp"
 #include "barock/fbo.hpp"
@@ -26,10 +27,10 @@ namespace barock {
     xdg_role_t                role;
     shared_t<xdg_base_role_t> role_impl;
 
-    fpoint_t offset;   ///< Logical offset (CSD, etc.), that has to be
-                       ///< accounted for.
+    fpoint_t offset;         ///< Logical offset (CSD, etc.), that has to be
+                             ///< accounted for.
 
-    region_t position; ///< Position & size of the surface
+    fpoint_t position, size; ///< Position & size of the surface
 
     struct {
       signal_t<void> on_geometry_change;
@@ -51,12 +52,22 @@ namespace barock {
     }
   };
 
+  using xdg_window_list_t = std::vector<shared_t<xdg_surface_t>>;
+
   class xdg_shell_t {
     public:
-    compositor_t &compositor;
-    wl_global    *global;
+    static constexpr size_t XDG_SHELL_PAINT_LAYER = 100;
+    input_manager_t        &input_manager;
+    output_manager_t       &output_manager;
+    cursor_manager_t       &cursor_manager;
 
-    xdg_shell_t(compositor_t &);
+    wl_display *display_;
+    wl_global  *global;
+
+    xdg_shell_t(wl_display       *display,
+                input_manager_t  &input,
+                output_manager_t &output,
+                cursor_manager_t &cursor);
     ~xdg_shell_t();
 
     /**
@@ -79,5 +90,10 @@ namespace barock {
     private:
     static void
     bind(wl_client *, void *, uint32_t, uint32_t);
+
+    void
+    on_output_new(output_t &);
+    void
+    paint(output_t &);
   };
 }

@@ -1,4 +1,5 @@
 #include "barock/shell/xdg_surface.hpp"
+#include "barock/core/cursor_manager.hpp"
 #include "barock/core/shm_pool.hpp"
 #include "barock/shell/xdg_toplevel.hpp"
 #include "barock/shell/xdg_wm_base.hpp"
@@ -15,10 +16,9 @@ namespace barock {
     , surface(base)
     , role(xdg_role_t::eNone)
     , role_impl()
-    , width(0)
-    , height(0)
-    , x(0)
-    , y(0) {}
+    , position({ 0., 0. })
+    , size({ 0., 0. })
+    , offset({ 0., 0. }) {}
 
   xdg_surface_t::~xdg_surface_t() {}
 }
@@ -53,9 +53,6 @@ get_toplevel(wl_client *client, wl_resource *xdg_surface, uint32_t id) {
                                                 xdg_toplevel_data_t{
                                                   .title  = "",
                                                   .app_id = "",
-                                                  .width  = -1, // Use what the
-                                                                // client prefers.
-                                                  .height = -1,
                                                 });
 
   surface->role_impl = toplevel;
@@ -65,6 +62,10 @@ get_toplevel(wl_client *client, wl_resource *xdg_surface, uint32_t id) {
   wl_array_init(&states);
   xdg_toplevel_send_configure(toplevel->resource(), 0, 0, &states);
   wl_array_release(&states);
+
+  // Once we have the toplevel, we move it to the current output.
+  auto &output = surface->shell.cursor_manager.current_output();
+  output.metadata.get<xdg_window_list_t>().emplace_back(surface);
 }
 
 void
@@ -85,12 +86,10 @@ xdg_surface_set_window_geometry(wl_client   *client,
   // of aligning, placing and constraining windows.
   auto surface = from_wl_resource<xdg_surface_t>(xdg_surface);
 
-  surface->x      = x;
-  surface->y      = y;
-  surface->width  = w;
-  surface->height = h;
+  surface->offset = { static_cast<float>(x), static_cast<float>(y) };
+  surface->size   = { static_cast<float>(w), static_cast<float>(h) };
 
-  surface->on_geometry_change.emit();
+  surface->events.on_geometry_change.emit();
 }
 
 void

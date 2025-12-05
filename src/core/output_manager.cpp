@@ -179,6 +179,7 @@ output_manager_t::mode_set() {
     output->renderer(
       gl_renderer_t{ output->mode_, crtc_planner_.mode_set(output->connector_, output->mode_) });
   }
+  events.on_mode_set.emit();
 }
 
 const std::vector<shared_t<output_t>> &

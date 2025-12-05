@@ -10,10 +10,10 @@ namespace barock {
   class shm_t {
     public:
     wl_global                *global;
-    compositor_t             &compositor;
+    wl_display               *display;
     static constexpr uint32_t VERSION = 2;
 
-    shm_t(compositor_t &);
+    shm_t(wl_display *);
     ~shm_t();
 
     private:

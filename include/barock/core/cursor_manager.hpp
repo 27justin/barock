@@ -71,5 +71,11 @@ namespace barock {
      */
     void
     set_output(output_t *);
+
+    /**
+     * @brief Return the output the cursor is currently on
+     */
+    output_t &
+    current_output();
   };
 }

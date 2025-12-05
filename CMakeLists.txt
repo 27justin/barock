@@ -56,7 +56,7 @@ set(barock_SOURCES
   src/core/shm.cpp
   src/core/shm_pool.cpp
   src/core/region.cpp
-  # src/core/wl_subcompositor.cpp
+  src/core/wl_subcompositor.cpp
   # src/core/wl_seat.cpp
   # src/core/wl_data_device_manager.cpp
   # src/core/wl_output.cpp
@@ -67,9 +67,9 @@ set(barock_SOURCES
   src/dmabuf/feedback.cpp
 
   # xdg shell
-  # src/shell/xdg_wm_base.cpp
-  # src/shell/xdg_surface.cpp
-  # src/shell/xdg_toplevel.cpp
+  src/shell/xdg_wm_base.cpp
+  src/shell/xdg_surface.cpp
+  src/shell/xdg_toplevel.cpp
   )
 
 target_include_directories(barock PUBLIC "include/")

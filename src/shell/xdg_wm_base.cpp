@@ -1,10 +1,11 @@
+#include "barock/shell/xdg_wm_base.hpp"
 #include "barock/compositor.hpp"
 
+#include "barock/core/renderer.hpp"
 #include "barock/core/shm_pool.hpp"
 #include "barock/core/surface.hpp"
 #include "barock/shell/xdg_surface.hpp"
 #include "barock/shell/xdg_toplevel.hpp"
-#include "barock/shell/xdg_wm_base.hpp"
 
 #include "../log.hpp"
 #include "wl/xdg-shell-protocol.h"
@@ -32,9 +33,45 @@ namespace barock {
 
   xdg_shell_t::~xdg_shell_t() {}
 
-  xdg_shell_t::xdg_shell_t(compositor_t &compositor)
-    : compositor(compositor) {
-    wl_global_create(compositor.display(), &xdg_wm_base_interface, 1, this, bind);
+  xdg_shell_t::xdg_shell_t(wl_display       *display,
+                           input_manager_t  &input,
+                           output_manager_t &output,
+                           cursor_manager_t &cursor)
+    : display_(display)
+    , input_manager(input)
+    , output_manager(output)
+    , cursor_manager(cursor) {
+    wl_global_create(display, &xdg_wm_base_interface, 1, this, bind);
+
+    for (auto &out : output.outputs()) {
+      on_output_new(*out);
+    }
+    output.events.on_output_new.connect(
+      std::bind(&xdg_shell_t::on_output_new, this, std::placeholders::_1));
+  }
+
+  void
+  xdg_shell_t::on_output_new(output_t &output) {
+    // The XDG shell holds a list of windows for each output, this has
+    // to be initialzied on every monitor, which is what this function
+    // does.
+    output.metadata.ensure<xdg_window_list_t>();
+
+    // We also have to attach our `repaint` listener, that actually draws the windows
+    output.events.on_repaint[XDG_SHELL_PAINT_LAYER].connect(
+      std::bind(&xdg_shell_t::paint, this, std::placeholders::_1));
+  }
+
+  void
+  xdg_shell_t::paint(output_t &output) {
+    auto renderer = &output.renderer();
+
+    auto &windows = output.metadata.get<xdg_window_list_t>();
+    for (auto &xdg_surface : windows) {
+      if (auto surface = xdg_surface->surface.lock(); surface) {
+        renderer->draw(*surface, xdg_surface->position - xdg_surface->offset);
+      }
+    }
   }
 
   void
@@ -53,7 +90,7 @@ namespace barock {
         wl_array state;
         wl_array_init(&state);
         xdg_toplevel_send_configure(
-          toplevel->resource(), xdg_surface->width, xdg_surface->height, &state);
+          toplevel->resource(), xdg_surface->size.x, xdg_surface->size.y, &state);
         wl_array_release(&state);
         break;
       }
@@ -93,7 +130,7 @@ namespace barock {
         void *p                    = wl_array_add(&state, sizeof(xdg_toplevel_state));
         *((xdg_toplevel_state *)p) = XDG_TOPLEVEL_STATE_ACTIVATED;
         xdg_toplevel_send_configure(
-          toplevel->resource(), xdg_surface->width, xdg_surface->height, &state);
+          toplevel->resource(), xdg_surface->size.x, xdg_surface->size.y, &state);
         wl_array_release(&state);
         break;
       }
@@ -132,13 +169,13 @@ xdg_wm_base_get_xdg_surface(wl_client   *client,
                                                   id,
                                                   *shell,
                                                   surface);
-  surface->role    = xdg_surface;
+
+  surface->role = xdg_surface.get();
 
   // Insert at the beginning, this will be the last rendered surface
   // (thus the top-most one.)
   shell->windows.insert(shell->windows.begin(), xdg_surface);
 
   // Send the configure event
-  xdg_surface_send_configure(xdg_surface->resource(),
-                             wl_display_next_serial(shell->compositor.display()));
+  xdg_surface_send_configure(xdg_surface->resource(), wl_display_next_serial(shell->display_));
 }

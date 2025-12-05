@@ -76,10 +76,10 @@ cfun_set_key(int32_t argc, Janet *argv) {
   auto hotkey_sequence = janet_getcstring(argv, 0);
   auto callback        = janet_getfunction(argv, 1);
 
-  INFO("fiber: {}", (void *)janet_current_fiber());
-
+  // Prevent freeing the callback
   janet_gcroot(janet_wrap_function(callback));
   auto action = parse_hotkey_string(hotkey_sequence, [callback] {
+    // Resume at the callback
     auto  fiber = janet_fiber(callback, 0, 0, nullptr);
     Janet value;
     janet_continue(fiber, janet_wrap_nil(), &value);

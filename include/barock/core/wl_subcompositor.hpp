@@ -1,5 +1,6 @@
 #pragma once
 
+#include "barock/core/wl_compositor.hpp"
 #include "barock/resource.hpp"
 
 #include "wl/wayland-protocol.h"
@@ -14,16 +15,18 @@ namespace barock {
   struct surface_t;
 
   struct subsurface_t {
+    int32_t                       x, y;
     weak_t<resource_t<surface_t>> surface;
   };
 
   struct wl_subcompositor_t {
     public:
     wl_global           *wl_subcompositor_global;
-    compositor_t        &compositor;
+    wl_display          *display;
+    wl_compositor_t     &compositor;
     static constexpr int VERSION = 1;
 
-    wl_subcompositor_t(compositor_t &);
+    wl_subcompositor_t(wl_display *, wl_compositor_t &compositor);
 
     static void
     bind(wl_client *, void *, uint32_t version, uint32_t id);

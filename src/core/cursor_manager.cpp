@@ -6,6 +6,7 @@
 #include "jsl/optional.hpp"
 
 #include "../log.hpp"
+#include <cassert>
 
 using namespace barock;
 
@@ -88,7 +89,8 @@ cursor_manager_t::cursor_manager_t(output_manager_t &output, input_manager_t &in
 
   texture_ = XcursorLibraryLoadImage("left_ptr", nullptr, 32);
 
-  // set_output(&output_manager_.outputs()[0]);
+  output_manager_.events.on_mode_set.connect(
+    [this] { set_output(output_manager_.outputs()[0].get()); });
 }
 
 void
@@ -110,11 +112,11 @@ cursor_manager_t::paint(output_t &output) {
 void
 cursor_manager_t::set_output(output_t *output) {
   if (paint_token_)
-    output_->on_repaint[CURSOR_PAINT_LAYER].disconnect(paint_token_.value());
+    output_->events.on_repaint[CURSOR_PAINT_LAYER].disconnect(paint_token_.value());
 
   if (output != nullptr) {
     output_ = output;
-    output_->on_repaint[CURSOR_PAINT_LAYER].connect(
+    output_->events.on_repaint[CURSOR_PAINT_LAYER].connect(
       std::bind(&cursor_manager_t::paint, this, std::placeholders::_1));
   }
 }
@@ -127,6 +129,14 @@ cursor_manager_t::transfer(const direction_t &direction) {
     return true;
   }
   return false;
+}
+
+output_t &
+cursor_manager_t::current_output() {
+  // Shouldn't ever happen, if we have no outputs, we don't even
+  // initialize.
+  assert(output_ != nullptr);
+  return *output_;
 }
 
 void
