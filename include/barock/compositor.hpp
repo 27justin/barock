@@ -44,17 +44,7 @@ namespace barock {
     minidrm::drm::handle_t drm_handle;
 
     wl_event_loop *event_loop_;
-    // std::unique_ptr<xdg_shell_t>              xdg_shell;
-    // std::unique_ptr<wl_compositor_t>          wl_compositor;
-    // std::unique_ptr<shm_t>                    shm;
-    // std::unique_ptr<dmabuf_t>                 dmabuf;
-    // std::unique_ptr<input_t>                  input;
-    // std::unique_ptr<wl_subcompositor_t>       wl_subcompositor;
-    // std::unique_ptr<wl_seat_t>                wl_seat;
-    // std::unique_ptr<wl_data_device_manager_t> wl_data_device_manager;
-    // std::unique_ptr<wl_output_t>              wl_output;
-
-    JanetTable *context_;
+    JanetTable    *context_;
 
     std::unique_ptr<event_loop_t>       event_loop;
     std::unique_ptr<input_manager_t>    input;
@@ -65,6 +55,10 @@ namespace barock {
     std::unique_ptr<shm_t>              shm;
     std::unique_ptr<hotkey_t>           hotkey;
     std::unique_ptr<xdg_shell_t>        xdg_shell;
+    std::unique_ptr<wl_seat_t>          wl_seat;
+    std::unique_ptr<wl_output_t>        wl_output;
+
+    std::unique_ptr<wl_data_device_manager_t> wl_data_device_manager;
 
     std::unique_ptr<event_bus_t> event_bus;
 

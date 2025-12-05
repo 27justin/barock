@@ -2,6 +2,7 @@
 #include "barock/compositor.hpp"
 
 #include "../log.hpp"
+#include "barock/core/output_manager.hpp"
 
 #include <wayland-server-core.h>
 #include <wayland-server-protocol.h>
@@ -9,10 +10,10 @@
 
 struct wl_output_interface wl_output_impl{ .release = nullptr };
 
-barock::wl_output_t::wl_output_t(compositor_t &compositor)
-  : compositor(compositor) {
-  wl_output_global =
-    wl_global_create(compositor.display(), &wl_output_interface, VERSION, this, bind);
+barock::wl_output_t::wl_output_t(wl_display *display, output_manager_t &output_manager)
+  : display(display)
+  , output_manager(output_manager) {
+  wl_output_global = wl_global_create(display, &wl_output_interface, VERSION, this, bind);
 }
 
 void
@@ -26,11 +27,8 @@ barock::wl_output_t::bind(wl_client *client, void *ud, uint32_t version, uint32_
   wl_resource_set_implementation(output, &wl_output_impl, ud, nullptr);
 
   // Send initial outputs
-  for (auto &conn : interface->compositor.drm_handle.connectors()) {
+  for (auto &conn : interface->output_manager.outputs()) {
     // We skip disconnected connectors.
-    if (conn.connection() != DRM_MODE_CONNECTED)
-      continue;
-
     wl_output_send_geometry(output,
                             0,
                             0,
@@ -42,9 +40,9 @@ barock::wl_output_t::bind(wl_client *client, void *ud, uint32_t version, uint32_
                             WL_OUTPUT_TRANSFORM_NORMAL);
     wl_output_send_mode(output,
                         WL_OUTPUT_MODE_PREFERRED,
-                        conn.modes().front().width(),
-                        conn.modes().front().height(),
-                        conn.modes().front().refresh_rate());
+                        conn->mode().width(),
+                        conn->mode().height(),
+                        conn->mode().refresh_rate());
     wl_output_send_done(output);
   }
 }

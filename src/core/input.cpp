@@ -154,3 +154,8 @@ input_manager_t::~input_manager_t() {
   libinput_unref(libinput_);
   udev_unref(udev_);
 }
+
+std::span<libinput_device *>
+input_manager_t::devices() {
+  return devices_;
+}

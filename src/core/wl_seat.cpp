@@ -1,5 +1,6 @@
 #include "barock/compositor.hpp"
-#include "barock/input.hpp"
+#include "barock/core/cursor_manager.hpp"
+#include "barock/core/input.hpp"
 #include "barock/resource.hpp"
 
 #include "barock/core/shm_pool.hpp"
@@ -68,25 +69,19 @@ struct wl_pointer_interface wl_pointer_impl{ .set_cursor = wl_pointer_set_cursor
 
 struct wl_keyboard_interface wl_keyboard_impl{ .release = wl_keyboard_release };
 
-barock::wl_seat_t::wl_seat_t(barock::compositor_t &comp)
-  : compositor(comp) {
-  wl_seat_global = wl_global_create(comp.display(), &wl_seat_interface, VERSION, this, bind);
-
-  // Initialize the keyboard XKB state & keymap
-  comp.keyboard.xkb.context = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
-  comp.keyboard.xkb.keymap =
-    xkb_keymap_new_from_names(comp.keyboard.xkb.context, nullptr, XKB_KEYMAP_COMPILE_NO_FLAGS);
-  comp.keyboard.xkb.keymap_string =
-    xkb_keymap_get_as_string(comp.keyboard.xkb.keymap, XKB_KEYMAP_FORMAT_TEXT_V1);
-  comp.keyboard.xkb.state = xkb_state_new(comp.keyboard.xkb.keymap);
+wl_seat_t::wl_seat_t(wl_display       *display,
+                     input_manager_t  &input_manager,
+                     cursor_manager_t &cursor_manager)
+  : display(display)
+  , input_manager(input_manager)
+  , cursor_manager(cursor_manager) {
+  wl_seat_global = wl_global_create(display, &wl_seat_interface, VERSION, this, bind);
 }
 
-barock::wl_seat_t::~wl_seat_t() {
-  free(compositor.keyboard.xkb.keymap_string);
-}
+wl_seat_t::~wl_seat_t() {}
 
 void
-barock::wl_seat_t::bind(wl_client *client, void *ud, uint32_t version, uint32_t id) {
+wl_seat_t::bind(wl_client *client, void *ud, uint32_t version, uint32_t id) {
   wl_seat_t *seat = (wl_seat_t *)ud;
 
   auto wl_seat       = make_resource<seat_t>(client, wl_seat_interface, wl_seat_impl, version, id);
@@ -129,7 +124,7 @@ barock::wl_seat_t::bind(wl_client *client, void *ud, uint32_t version, uint32_t 
   seat->seats.insert(std::pair(client, wl_seat));
 
   uint32_t capabilities = 0;
-  for (auto &dev : seat->compositor.input->devices) {
+  for (auto &dev : seat->input_manager.devices()) {
     if (libinput_device_has_capability(dev, LIBINPUT_DEVICE_CAP_KEYBOARD))
       capabilities |= WL_SEAT_CAPABILITY_KEYBOARD;
 
@@ -190,7 +185,7 @@ wl_seat_get_keyboard(wl_client *client, wl_resource *wl_seat, uint32_t id) {
   });
   seat->keyboard = wl_keyboard;
 
-  auto &keymap_string = seat->interface->compositor.keyboard.xkb.keymap_string;
+  auto &keymap_string = seat->interface->input_manager.xkb.keymap_string;
   int   keymap_fd     = create_xkb_keymap_fd(keymap_string, strlen(keymap_string));
   wl_keyboard_send_keymap(
     wl_keyboard->resource(), WL_KEYBOARD_KEYMAP_FORMAT_XKB_V1, keymap_fd, strlen(keymap_string));
@@ -210,13 +205,12 @@ wl_pointer_set_cursor(struct wl_client   *client,
                       int32_t             hotspot_x,
                       int32_t             hotspot_y) {
   auto pointer = from_wl_resource<wl_pointer_t>(wl_pointer);
-
+  auto wl_seat = pointer->seat->interface;
   if (wl_surface == nullptr) {
-    pointer->seat->interface->compositor.cursor.surface = nullptr;
+    wl_seat->cursor_manager.xcursor(nullptr);
   } else {
-    shared_t<resource_t<surface_t>> surface             = from_wl_resource<surface_t>(wl_surface);
-    pointer->seat->interface->compositor.cursor.surface = surface;
-    pointer->seat->interface->compositor.cursor.hotspot = { hotspot_x, hotspot_y };
+    shared_t<resource_t<surface_t>> surface = from_wl_resource<surface_t>(wl_surface);
+    wl_seat->cursor_manager.set_cursor(surface, ipoint_t{ hotspot_x, hotspot_y });
   }
 }
 

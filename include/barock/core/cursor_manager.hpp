@@ -5,6 +5,7 @@
 #include "barock/resource.hpp"
 
 #include "jsl/optional.hpp"
+#include <cstdint>
 
 extern "C" {
 #include <X11/Xcursor/Xcursor.h>
@@ -77,5 +78,13 @@ namespace barock {
      */
     output_t &
     current_output();
+
+    void
+    xcursor(const char *name);
+
+    shared_t<surface_t>
+    cursor() const;
+
+    void set_cursor(shared_t<surface_t>, ipoint_t);
   };
 }

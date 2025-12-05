@@ -22,10 +22,10 @@ struct wl_data_device_interface wl_data_device_impl{ .start_drag    = nullptr,
                                                      .release = [](wl_client *, wl_resource *) {
                                                      } };
 
-barock::wl_data_device_manager_t::wl_data_device_manager_t(compositor_t &compositor)
-  : compositor(compositor) {
+barock::wl_data_device_manager_t::wl_data_device_manager_t(wl_display *display)
+  : display(display) {
   wl_data_device_manager_global =
-    wl_global_create(compositor.display(), &wl_data_device_manager_interface, VERSION, this, bind);
+    wl_global_create(display, &wl_data_device_manager_interface, VERSION, this, bind);
 }
 
 void

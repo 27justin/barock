@@ -4,6 +4,9 @@
 #include "barock/core/input.hpp"
 #include "barock/core/shm.hpp"
 #include "barock/core/wl_compositor.hpp"
+#include "barock/core/wl_data_device_manager.hpp"
+#include "barock/core/wl_output.hpp"
+#include "barock/core/wl_seat.hpp"
 #include "barock/hotkey.hpp"
 #include "barock/render/opengl.hpp"
 #include "barock/resource.hpp"
@@ -133,6 +136,15 @@ compositor_t::compositor_t(minidrm::drm::handle_t drm_handle, const std::string 
 
   TRACE("* Initializing `wl_shm` Protocol");
   shm = make_unique<shm_t>(display_);
+
+  TRACE("* Initializing `wl_data_device_manager` Protocol");
+  wl_data_device_manager = make_unique<wl_data_device_manager_t>(display_);
+
+  TRACE("* Initializing `wl_seat` Protocol");
+  wl_seat = make_unique<wl_seat_t>(display_, *input, *cursor);
+
+  TRACE("* Initializing `wl_output` Protocol");
+  wl_output = make_unique<wl_output_t>(display_, *output);
 
   TRACE("* Initializing XDG Shell Protocol");
   xdg_shell = make_unique<xdg_shell_t>(display_, *input, *output, *cursor);

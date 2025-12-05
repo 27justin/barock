@@ -6,7 +6,9 @@
 #include "jsl/optional.hpp"
 
 #include "../log.hpp"
+#include <X11/Xcursor/Xcursor.h>
 #include <cassert>
+#include <variant>
 
 using namespace barock;
 
@@ -141,6 +143,33 @@ cursor_manager_t::current_output() {
   // initialize.
   assert(output_ != nullptr);
   return *output_;
+}
+
+void
+cursor_manager_t::xcursor(const char *name) {
+  if (std::holds_alternative<XcursorImage *>(texture_)) {
+    // First free the old one.
+    XcursorImageDestroy(std::get<XcursorImage *>(texture_));
+  }
+
+  if (name)
+    texture_ = XcursorLibraryLoadImage(name, nullptr, 30);
+  // on nullptr, we reset to left_ptr
+  else
+    texture_ = XcursorLibraryLoadImage("left_ptr", nullptr, 30);
+}
+
+shared_t<surface_t>
+cursor_manager_t::cursor() const {
+  if (!std::holds_alternative<shared_t<surface_t>>(texture_))
+    return nullptr;
+  return std::get<shared_t<surface_t>>(texture_);
+}
+
+void
+cursor_manager_t::set_cursor(shared_t<surface_t> surface, ipoint_t hotspot) {
+  texture_ = surface;
+  hotspot_ = hotspot;
 }
 
 signal_action_t

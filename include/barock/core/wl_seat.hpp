@@ -1,5 +1,7 @@
 #pragma once
 
+#include "barock/core/cursor_manager.hpp"
+#include "barock/core/input.hpp"
 #include "barock/resource.hpp"
 
 #include "wl/wayland-protocol.h"
@@ -36,9 +38,12 @@ namespace barock {
     static constexpr int                                VERSION = 9;
     std::map<wl_client *, shared_t<resource_t<seat_t>>> seats;
 
-    compositor_t &compositor;
-    wl_global    *wl_seat_global;
-    wl_seat_t(compositor_t &);
+    input_manager_t  &input_manager;
+    cursor_manager_t &cursor_manager;
+
+    wl_display *display;
+    wl_global  *wl_seat_global;
+    wl_seat_t(wl_display *, input_manager_t &, cursor_manager_t &);
     ~wl_seat_t();
 
     shared_t<resource_t<seat_t>>

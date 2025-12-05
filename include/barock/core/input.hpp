@@ -1,6 +1,7 @@
 #pragma once
 
 #include <libinput.h>
+#include <span>
 #include <string>
 #include <xkbcommon/xkbcommon.h>
 
@@ -65,5 +66,8 @@ namespace barock {
 
     int
     poll(int timeout = -1);
+
+    std::span<libinput_device *>
+    devices();
   };
 }

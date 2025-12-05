@@ -57,9 +57,9 @@ set(barock_SOURCES
   src/core/shm_pool.cpp
   src/core/region.cpp
   src/core/wl_subcompositor.cpp
-  # src/core/wl_seat.cpp
-  # src/core/wl_data_device_manager.cpp
-  # src/core/wl_output.cpp
+  src/core/wl_seat.cpp
+  src/core/wl_data_device_manager.cpp
+  src/core/wl_output.cpp
 
   # dmabuf
   src/dmabuf/dmabuf.cpp

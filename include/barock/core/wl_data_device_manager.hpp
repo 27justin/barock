@@ -12,9 +12,9 @@ namespace barock {
     public:
     static constexpr int VERSION = 3;
     wl_global           *wl_data_device_manager_global;
-    compositor_t        &compositor;
+    wl_display          *display;
 
-    wl_data_device_manager_t(compositor_t &);
+    wl_data_device_manager_t(wl_display *);
 
     static void
     bind(wl_client *, void *, uint32_t, uint32_t);
