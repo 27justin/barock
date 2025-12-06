@@ -1,0 +1,180 @@
+#include "../log.hpp"
+
+#include "barock/compositor.hpp"
+#include "barock/core/output_manager.hpp"
+#include "barock/script/janet.hpp"
+#include "barock/singleton.hpp"
+
+#include <jsl/optional.hpp>
+#include <jsl/result.hpp>
+
+#include <spawn.h>
+#include <unistd.h>
+
+using namespace barock;
+
+namespace barock {
+  JANET_MODULE(output_manager_t);
+}
+
+struct mode_setting_t {
+  int32_t                width, height;
+  jsl::optional_t<float> refresh_rate;
+};
+
+// Trim from the start (in place)
+inline void
+ltrim(std::string &s) {
+  s.erase(s.begin(),
+          std::find_if(s.begin(), s.end(), [](unsigned char ch) { return !std::isspace(ch); }));
+}
+
+// Trim from the end (in place)
+inline void
+rtrim(std::string &s) {
+  s.erase(
+    std::find_if(s.rbegin(), s.rend(), [](unsigned char ch) { return !std::isspace(ch); }).base(),
+    s.end());
+}
+
+inline void
+trim(std::string &s) {
+  ltrim(s);
+  rtrim(s);
+}
+
+static jsl::result_t<mode_setting_t, std::string /* err */>
+parse_mode_line(const std::string &line) {
+  constexpr const char *REFRESH_RATE_DELIMITER = "@";
+  constexpr const char *DIMENSION_DELIMITER    = "x";
+
+  mode_setting_t setting;
+
+  // First split on REFRESH_RATE_DELIMITER
+  std::string dimensions = line.substr(0, line.find(REFRESH_RATE_DELIMITER));
+
+  std::string w = dimensions.substr(0, dimensions.find(DIMENSION_DELIMITER));
+  if (w.size() < 1 || w.size() == dimensions.size())
+    return jsl::result_t<mode_setting_t, std::string>::err(
+      "Expected syntax `<width>x<height>(@<refresh rate>)?`");
+  ;
+
+  std::string h = dimensions.substr(w.size() + 1);
+  if (h.size() < 1)
+    return jsl::result_t<mode_setting_t, std::string>::err(
+      "Expected syntax `<width>x<height>(@<refresh rate>)?`");
+
+  trim(w);
+  trim(h);
+
+  setting.width  = std::stol(w);
+  setting.height = std::stol(h);
+
+  // Refresh rate is optional
+  if (dimensions.size() == line.size()) {
+    return jsl::result_t<mode_setting_t, std::string>::ok(setting);
+  }
+
+  std::string refresh_rate = line.substr(dimensions.size() + 1);
+  trim(refresh_rate);
+  setting.refresh_rate = std::stof(refresh_rate);
+
+  return jsl::result_t<mode_setting_t, std::string>::ok(setting);
+}
+
+JANET_CFUN(cfun_output_configure) {
+  janet_fixarity(argc, 2);
+
+  auto connector  = janet_getkeyword(argv, 0);
+  auto parameters = janet_gettable(argv, 1);
+
+  auto &interop = singleton_t<janet_interop_t>::get();
+  // Find the connector
+  auto &outputs = interop.compositor->output->outputs();
+  auto  it      = std::find_if(outputs.begin(), outputs.end(), [connector](auto &output) {
+    return output->connector().type() == std::string_view((const char *)connector);
+  });
+
+  if (it == outputs.end()) {
+    WARN("Tried to configure output '{}', which is not connected.", (const char *)connector);
+    return janet_wrap_nil();
+  }
+
+  // Else, we can parse the parameters table
+  janet_table_get(parameters, janet_ckeywordv("mode"));
+
+  auto mode_opt       = janet_table_get(parameters, janet_ckeywordv("mode"));
+  auto preferred_mode = parse_mode_line(janet_getcstring(&mode_opt, 0));
+
+  if (!preferred_mode.valid()) {
+    ERROR("{}", preferred_mode.error());
+    return janet_wrap_false();
+  }
+
+  // List the modes we have, and try to match either the exact one, or
+  // the preferred.
+  auto &drm_connector = (*it)->connector();
+  auto  modes         = drm_connector.modes();
+  auto  best_match    = modes.end();
+
+  for (auto it = modes.begin(); it != modes.end(); ++it) {
+    auto &mode = *it;
+    if (best_match == modes.end() && mode.preferred) {
+      best_match = it;
+    }
+
+    if (mode.width() == preferred_mode.value().width &&
+        mode.height() == preferred_mode.value().height &&
+        mode.refresh_rate() == preferred_mode.value().refresh_rate.value_or(mode.refresh_rate())) {
+      best_match = it;
+    }
+  }
+
+  if (best_match == modes.end()) {
+    ERROR("Could not match any mode based on the configuration for {}!", (const char *)connector);
+    return janet_wrap_false();
+  }
+
+  interop.compositor->output->configure(**it, *best_match);
+  INFO("Configured '{}' to use mode {}x{} @ {} Hz",
+       (const char *)connector,
+       best_match->width(),
+       best_match->height(),
+       best_match->refresh_rate());
+
+  return janet_wrap_true();
+}
+
+JANET_CFUN(cfun_output_get) {
+  janet_fixarity(argc, 1);
+
+  auto connector_name = janet_getkeyword(argv, 0);
+
+  auto interop = singleton_t<janet_interop_t>::get();
+  auto output  = interop.compositor->output->by_name((const char *)connector_name);
+  if (output.valid() == false) {
+    return janet_wrap_nil();
+  }
+
+  JanetTable *table = janet_table(3);
+
+  janet_table_put(table, janet_ckeywordv("width"), janet_wrap_integer(output->mode().width()));
+  janet_table_put(table, janet_ckeywordv("height"), janet_wrap_integer(output->mode().height()));
+  janet_table_put(
+    table, janet_ckeywordv("refresh-rate"), janet_wrap_number(output->mode().refresh_rate()));
+
+  return janet_wrap_table(table);
+}
+
+void
+janet_module_t<output_manager_t>::import(JanetTable *env) {
+  constexpr static JanetReg output_manager_fns[] = {
+    { "output/configure",
+     cfun_output_configure,        "(output-configure output parameters)\n\nConfigure `output' with parameters"       },
+    {       "output/get",
+     cfun_output_get, "(output/get connector-name)\n\nReturn an object containing information about the output at "
+ "connector `connector-name'.\nReturns nil, when the output couldn't be found."                  },
+    {            nullptr, nullptr,                                                                             nullptr }
+  };
+  janet_cfuns(env, "barock", output_manager_fns);
+}

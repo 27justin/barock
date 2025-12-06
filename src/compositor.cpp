@@ -21,81 +21,26 @@
 #include <wayland-util.h>
 
 #include <fstream>
-#include <spawn.h>
 #include <sstream>
 
 using namespace barock;
 
-pid_t
-run_command(std::string_view cmd) {
-  pid_t             pid;
-  posix_spawnattr_t attr;
-
-  // Initialize spawn attributes
-  if (posix_spawnattr_init(&attr) != 0) {
-    perror("posix_spawnattr_init");
-    return -1;
-  }
-
-  // Set the POSIX_SPAWN_SETSID flag to detach from the current session
-  short flags = POSIX_SPAWN_SETSID;
-  if (posix_spawnattr_setflags(&attr, flags) != 0) {
-    perror("posix_spawnattr_setflags");
-    posix_spawnattr_destroy(&attr);
-    return -1;
-  }
-
-  const char *argv[] = { (char *)"sh", (char *)"-c", nullptr, nullptr };
-  std::string cmdstr(cmd);
-  argv[2]    = const_cast<char *>(cmdstr.c_str());
-  int result = posix_spawnp(&pid, "sh", NULL, NULL, const_cast<char *const *>(argv), environ);
-
-  posix_spawnattr_destroy(&attr);
-
-  if (result != 0) {
-    perror("posix_spawnp");
-    return -1;
-  }
-
-  return pid;
-}
-
-static Janet
-cfun_run_command(int argc, Janet *argv) {
-  janet_fixarity(argc, 1);
-
-  std::string command = (const char *)janet_getstring(argv, 0);
-  pid_t       pid     = run_command(command);
-  return janet_wrap_integer((int)pid);
-}
-
-static Janet
-cfun_add_hook(int argc, Janet *argv) {
-  janet_fixarity(argc, 2);
-  auto &interop = singleton_t<janet_interop_t>::get();
-
-  auto  event_symbol = janet_getsymbol(argv, 0);
-  Janet event_list{};
-  janet_resolve(interop.env, event_symbol, &event_list);
-
-  if (janet_type(event_list) != JANET_ARRAY) {
-    // TODO: Gracefully handle failure
-    throw std::runtime_error{ "Expected type to be array" };
-  }
-
-  auto callback = janet_getfunction(argv, 1);
-
-  janet_gcroot(janet_wrap_function(callback));
-  janet_array_push(janet_unwrap_array(event_list), janet_wrap_function(callback));
-
-  return janet_wrap_nil();
-}
-
 compositor_t::compositor_t(minidrm::drm::handle_t drm_handle, const std::string &seat)
   : drm_handle(drm_handle)
   , input() {
-  using std::make_unique;
 
+  // TODO: I usually am firmly opposed to using singletons, because
+  // they make testing difficult. However, not having a singleton for
+  // the compositor available makes it very difficult to write good
+  // `Janet' bindings, because more often than not, we need access to
+  // the compositor.
+  //
+  // Anyhow; Figure out whether we can do without singletons, it's
+  // fine for now, but if it becomes unmaintainable, we have to think
+  // of some other approach.
+  singleton_t<compositor_t>::set(this);
+
+  using std::make_unique;
   display_ = wl_display_create();
   wl_display_add_socket(display_, nullptr);
 
@@ -152,16 +97,8 @@ compositor_t::compositor_t(minidrm::drm::handle_t drm_handle, const std::string 
   TRACE("* Initializing Event Bus");
   event_bus = make_unique<event_bus_t>();
 
-  constexpr static JanetReg compositor_fns[] = {
-    {    "add-hook",
-     &cfun_add_hook,
-     "(add-hook event fn)\n\nAdd a hook to the given `event', calling `fn' when it triggers."         },
-    { "run-command",
-     &cfun_run_command,
-     "(run-command string)\n\nRun command supplied via `string', and run via `sh -c`."                },
-    {       nullptr, nullptr,                                                                  nullptr }
-  };
-  janet_cfuns(context_, "barock", compositor_fns);
+  TRACE("* Initializing Janet modules ({})", janet_module_loader_t::get_modules().size());
+  janet_module_loader_t::run_all_imports(context_);
 }
 
 compositor_t::~compositor_t() {

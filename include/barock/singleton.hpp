@@ -29,6 +29,11 @@ namespace barock {
     valid() {
       return instance != nullptr;
     }
+
+    static void
+    set(_Ty *instance) {
+      singleton_t<_Ty>::instance = instance;
+    }
   };
 
   template<typename _Ty>

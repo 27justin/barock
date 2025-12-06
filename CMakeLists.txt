@@ -61,6 +61,11 @@ set(barock_SOURCES
   src/core/wl_data_device_manager.cpp
   src/core/wl_output.cpp
 
+  # janet bindings
+  src/script/compositor.cpp
+  src/script/output.cpp
+  src/script/xdg_shell.cpp
+
   # dmabuf
   src/dmabuf/dmabuf.cpp
   src/dmabuf/buffer.cpp

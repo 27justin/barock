@@ -10,6 +10,7 @@
 // output_t
 #include "barock/core/event_bus.hpp"
 #include "barock/core/output.hpp"
+#include "barock/script/janet.hpp"
 
 #include <janet.h>
 
@@ -71,10 +72,4 @@ namespace barock {
     void
     load_file(const std::string &path);
   };
-
-  struct barock_userdata_t {
-    compositor_t *compositor;
-  };
-
-  extern JanetAbstractType const barock_at;
 };
