@@ -28,9 +28,9 @@ struct wl_subcompositor_interface wl_subcompositor_impl{
 
 void
 wl_subsurface_set_position(wl_client *client, wl_resource *wl_subsurface, int32_t x, int32_t y) {
-  auto subsurface = from_wl_resource<subsurface_t>(wl_subsurface);
-  subsurface->x   = x;
-  subsurface->y   = y;
+  auto subsurface        = from_wl_resource<subsurface_t>(wl_subsurface);
+  subsurface->position.x = x;
+  subsurface->position.y = y;
 }
 
 void
@@ -47,9 +47,9 @@ struct wl_subsurface_interface wl_subsurface_impl{
 
 namespace barock {
 
-  wl_subcompositor_t::wl_subcompositor_t(wl_display *display, wl_compositor_t &compositor)
+  wl_subcompositor_t::wl_subcompositor_t(wl_display *display, service_registry_t &registry)
     : display(display)
-    , compositor(compositor) {
+    , registry(registry) {
     wl_subcompositor_global =
       wl_global_create(display, &wl_subcompositor_interface, VERSION, this, bind);
   }
@@ -88,7 +88,7 @@ wl_subcompositor_get_subsurface(wl_client   *client,
 
   barock::wl_subcompositor_t *subcompositor =
     (barock::wl_subcompositor_t *)wl_resource_get_user_data(wl_subcompositor);
-  barock::wl_compositor_t &compositor = subcompositor->compositor;
+  barock::wl_compositor_t &compositor = *subcompositor->registry.wl_compositor;
 
   // The to-be sub-surface must not already have another role, and it
   // must not have an existing wl_subsurface object. Otherwise the
@@ -103,12 +103,14 @@ wl_subcompositor_get_subsurface(wl_client   *client,
   //   return;
   // }
 
-  auto wl_subsurface = make_resource<subsurface_t>(client,
-                                                   wl_subsurface_interface,
-                                                   wl_subsurface_impl,
-                                                   wl_resource_get_version(wl_subcompositor),
-                                                   id,
-                                                   subsurface_t{ .surface = child_surface });
+  auto wl_subsurface =
+    make_resource<subsurface_t>(client,
+                                wl_subsurface_interface,
+                                wl_subsurface_impl,
+                                wl_resource_get_version(wl_subcompositor),
+                                id,
+                                subsurface_t{ .surface = (shared_t<surface_t>)child_surface,
+                                              .parent  = (shared_t<surface_t>)parent_surface });
 
   // Adding sub-surfaces to a parent is a double-buffered operation on
   // the parent (see wl_surface.commit). The effect of adding a
@@ -122,7 +124,6 @@ wl_subcompositor_get_subsurface(wl_client   *client,
   // We immediately add the parent to the state of our child_surface.
   child_surface->state.subsurface   = wl_subsurface;
   child_surface->staging.subsurface = wl_subsurface;
-  // child_surface->parent             = parent_surface;
 
   // The parent surface must not be one of the child surface's
   // descendants, and the parent must be different from the child

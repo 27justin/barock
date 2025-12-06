@@ -22,15 +22,18 @@ namespace barock {
     std::function<void()>     action;
   };
 
+  struct service_registry_t;
+
   struct hotkey_t {
     std::vector<key_action_t> chord;
     std::vector<action_t>     actions;
 
-    size_t      max_action_size = 0;
-    xkb_keymap *keymap;
-    xkb_state  *state;
+    size_t              max_action_size = 0;
+    xkb_keymap         *keymap;
+    xkb_state          *state;
+    service_registry_t &registry;
 
-    hotkey_t(input_manager_t &input);
+    hotkey_t(service_registry_t &);
 
     bool
     feed(xkb_keysym_t symbol);

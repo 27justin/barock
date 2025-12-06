@@ -88,9 +88,9 @@ JANET_CFUN(cfun_output_configure) {
   auto connector  = janet_getkeyword(argv, 0);
   auto parameters = janet_gettable(argv, 1);
 
-  auto &interop = singleton_t<janet_interop_t>::get();
+  auto &compositor = singleton_t<compositor_t>::get();
   // Find the connector
-  auto &outputs = interop.compositor->output->outputs();
+  auto &outputs = compositor.registry_.output->outputs();
   auto  it      = std::find_if(outputs.begin(), outputs.end(), [connector](auto &output) {
     return output->connector().type() == std::string_view((const char *)connector);
   });
@@ -135,7 +135,7 @@ JANET_CFUN(cfun_output_configure) {
     return janet_wrap_false();
   }
 
-  interop.compositor->output->configure(**it, *best_match);
+  compositor.registry_.output->configure(**it, *best_match);
   INFO("Configured '{}' to use mode {}x{} @ {} Hz",
        (const char *)connector,
        best_match->width(),
@@ -150,8 +150,8 @@ JANET_CFUN(cfun_output_get) {
 
   auto connector_name = janet_getkeyword(argv, 0);
 
-  auto interop = singleton_t<janet_interop_t>::get();
-  auto output  = interop.compositor->output->by_name((const char *)connector_name);
+  auto &compositor = singleton_t<compositor_t>::get();
+  auto  output     = compositor.registry_.output->by_name((const char *)connector_name);
   if (output.valid() == false) {
     return janet_wrap_nil();
   }

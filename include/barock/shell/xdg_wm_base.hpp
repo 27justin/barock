@@ -1,6 +1,5 @@
 #pragma once
 
-#include "barock/compositor.hpp"
 #include "barock/core/output_manager.hpp"
 #include "barock/core/point.hpp"
 #include "barock/core/surface.hpp"
@@ -15,6 +14,7 @@
 namespace barock {
   struct xdg_shell_t;
   struct xdg_toplevel_t;
+  struct service_registry_t;
 
   enum class xdg_role_t { eToplevel, ePopup, eNone };
 
@@ -59,9 +59,7 @@ namespace barock {
   class xdg_shell_t {
     public:
     static constexpr size_t XDG_SHELL_PAINT_LAYER = 100;
-    input_manager_t        &input_manager;
-    output_manager_t       &output_manager;
-    cursor_manager_t       &cursor_manager;
+    service_registry_t     &registry;
 
     wl_display *display_;
     wl_global  *global;
@@ -71,18 +69,8 @@ namespace barock {
       signal_t<xdg_toplevel_t &>        on_toplevel_new;
     } events;
 
-    xdg_shell_t(wl_display       *display,
-                input_manager_t  &input,
-                output_manager_t &output,
-                cursor_manager_t &cursor);
+    xdg_shell_t(wl_display *display, service_registry_t &registry);
     ~xdg_shell_t();
-
-    /**
-     * @brief List of all top-level windows, this vector is rendered
-     * sequentially, thus position 0 it the top most window, and
-     * position N the bottom-most.
-     */
-    std::vector<shared_t<xdg_surface_t>> windows;
 
     /**
      * @brief Activate a surface.  This method sends a `configure`
@@ -93,6 +81,15 @@ namespace barock {
 
     void
     deactivate(const shared_t<xdg_surface_t> &);
+
+    /**
+     * @brief Query the surface as `position' on output `output',
+     * returns the top-most surface, if found.  otherwise a nullptr.
+     *
+     * NOTE: `position' has to be in workspace local coordinates.
+     */
+    shared_t<resource_t<xdg_surface_t>>
+    by_position(output_t &, const fpoint_t &);
 
     private:
     static void

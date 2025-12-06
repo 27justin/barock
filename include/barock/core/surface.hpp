@@ -7,6 +7,7 @@
 #include "barock/core/wl_subcompositor.hpp"
 #include "barock/resource.hpp"
 #include "wl/wayland-protocol.h"
+#include <jsl/optional.hpp>
 
 #include <cstdint>
 #include <optional>
@@ -72,6 +73,8 @@ namespace barock {
     // duplicate-able by nature.
     surface_t(const surface_t &) = delete;
 
+    virtual ~surface_t() = default;
+
     surface_state_t state,
       staging; // Surface state is double buffered
 
@@ -90,11 +93,38 @@ namespace barock {
      * @brief Compute the full extent of a surface by recursively adding up buffer sizes.
      * The returned region encompasses a region that the entire tree of surfaces takes up.
      */
-    fpoint_t
+    ipoint_t
     full_extent() const;
+
+    /**
+     * @brief Compute the local extent of a surface determined by the attached buffer dimensions.
+     */
+    ipoint_t
+    extent() const;
+
+    /**
+     * @brief Returns the position of this surface, relative to all parent surfaces.
+     */
+    ipoint_t
+    position() const;
 
     bool
     has_role() const;
+
+    /**
+     * @brief Return the root surface, i.e. the parent surface that itself has no parent.
+     */
+    const surface_t &
+    root() const;
+
+    /**
+     * @brief Return the root surface, i.e. the parent surface that itself has no parent.
+     */
+    surface_t &
+    root();
+
+    shared_t<surface_t>
+    lookup(const ipoint_t &);
   };
 
 };

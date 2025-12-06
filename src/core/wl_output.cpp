@@ -10,9 +10,9 @@
 
 struct wl_output_interface wl_output_impl{ .release = nullptr };
 
-barock::wl_output_t::wl_output_t(wl_display *display, output_manager_t &output_manager)
+barock::wl_output_t::wl_output_t(wl_display *display, service_registry_t &registry)
   : display(display)
-  , output_manager(output_manager) {
+  , registry(registry) {
   wl_output_global = wl_global_create(display, &wl_output_interface, VERSION, this, bind);
 }
 
@@ -27,7 +27,7 @@ barock::wl_output_t::bind(wl_client *client, void *ud, uint32_t version, uint32_
   wl_resource_set_implementation(output, &wl_output_impl, ud, nullptr);
 
   // Send initial outputs
-  for (auto &conn : interface->output_manager.outputs()) {
+  for (auto &conn : interface->registry.output->outputs()) {
     // We skip disconnected connectors.
     wl_output_send_geometry(output,
                             0,

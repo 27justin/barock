@@ -1,4 +1,5 @@
 #include "barock/core/cursor_manager.hpp"
+#include "barock/compositor.hpp"
 #include "barock/core/input.hpp"
 #include "barock/core/output.hpp"
 #include "barock/core/renderer.hpp"
@@ -78,23 +79,23 @@ const std::vector<std::string> CURSOR_NAMES = {
   "zoom-out",
 };
 
-cursor_manager_t::cursor_manager_t(output_manager_t &output, input_manager_t &input)
-  : output_manager_(output) {
-  input.on_mouse_move.connect(
+cursor_manager_t::cursor_manager_t(service_registry_t &registry)
+  : registry_(registry) {
+  registry.input->on_mouse_move.connect(
     std::bind(&cursor_manager_t::on_mouse_move, this, std::placeholders::_1));
-
-  input.on_mouse_click.connect(
-    std::bind(&cursor_manager_t::on_mouse_click, this, std::placeholders::_1));
-
-  input.on_mouse_scroll.connect(
-    std::bind(&cursor_manager_t::on_mouse_scroll, this, std::placeholders::_1));
 
   texture_ = XcursorLibraryLoadImage("left_ptr", nullptr, 32);
 
-  output_manager_.events.on_mode_set.connect([this] {
-    set_output(output_manager_.outputs()[0].get());
+  registry_.output->events.on_mode_set.connect([this] {
+    set_output(registry_.output->outputs()[0].get());
     return signal_action_t::eDelete;
   });
+}
+
+cursor_manager_t::~cursor_manager_t() {
+  if (std::holds_alternative<XcursorImage *>(texture_)) {
+    XcursorImageDestroy(std::get<XcursorImage *>(texture_));
+  }
 }
 
 signal_action_t
@@ -107,7 +108,7 @@ cursor_manager_t::paint(output_t &output) {
         output.renderer().draw(texture, position_);
       } else {
         // shared_t<surface_t>
-        output.renderer().draw(*texture, position_);
+        output.renderer().draw(*texture, position_ - hotspot_);
       }
     },
     texture_);
@@ -170,6 +171,17 @@ void
 cursor_manager_t::set_cursor(shared_t<surface_t> surface, ipoint_t hotspot) {
   texture_ = surface;
   hotspot_ = hotspot;
+}
+
+const fpoint_t &
+cursor_manager_t::position() const {
+  return position_;
+}
+
+const fpoint_t &
+cursor_manager_t::position(const fpoint_t &value) {
+  position_ = value;
+  return position_;
 }
 
 signal_action_t

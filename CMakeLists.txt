@@ -65,6 +65,7 @@ set(barock_SOURCES
   src/script/compositor.cpp
   src/script/output.cpp
   src/script/xdg_shell.cpp
+  src/script/hotkey.cpp
 
   # dmabuf
   src/dmabuf/dmabuf.cpp

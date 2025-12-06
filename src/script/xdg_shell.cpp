@@ -63,8 +63,8 @@ JANET_CFUN(cfun_xdg_set_position) {
   auto app_id    = janet_table_get(table, janet_ckeywordv("app-id"));
 
   // Find the window on (get table :output)
-  auto &interop = singleton_t<janet_interop_t>::get();
-  auto  output  = interop.compositor->output->by_name((const char *)janet_unwrap_string(connector));
+  auto &compositor = singleton_t<compositor_t>::get();
+  auto  output = compositor.registry_.output->by_name((const char *)janet_unwrap_string(connector));
   if (output.valid() == false) {
     return janet_wrap_nil();
   }
@@ -90,7 +90,7 @@ JANET_CFUN(cfun_xdg_set_position) {
 signal_action_t
 dispatch_xdg_window_new(xdg_toplevel_t &toplevel) {
   auto &compositor = singleton_t<compositor_t>::get();
-  INFO("New XDG window");
+  TRACE("(janet module xdg_toplevel_t) Dispatching `xdg-window-new'");
 
   Janet value;
   janet_resolve(compositor.context_, janet_csymbol("xdg-window-new"), &value);
@@ -129,5 +129,5 @@ janet_module_t<xdg_shell_t>::import(JanetTable *env) {
   janet_def(env, "xdg-window-new", janet_wrap_array(janet_array(0)), "Event list");
 
   auto &compositor = singleton_t<compositor_t>::get();
-  compositor.xdg_shell->events.on_toplevel_new.connect(&dispatch_xdg_window_new);
+  compositor.registry_.xdg_shell->events.on_toplevel_new.connect(&dispatch_xdg_window_new);
 }

@@ -1,4 +1,5 @@
 #include "barock/shell/xdg_surface.hpp"
+#include "barock/compositor.hpp"
 #include "barock/core/cursor_manager.hpp"
 #include "barock/core/shm_pool.hpp"
 #include "barock/shell/xdg_toplevel.hpp"
@@ -64,7 +65,7 @@ xdg_surface_get_toplevel(wl_client *client, wl_resource *xdg_surface, uint32_t i
   wl_array_release(&states);
 
   // Once we have the toplevel, we move it to the current output.
-  auto &output    = surface->shell.cursor_manager.current_output();
+  auto &output    = surface->shell.registry.cursor->current_output();
   surface->output = &output;
   auto &windows   = output.metadata.get<xdg_window_list_t>();
   windows.insert(windows.begin(), surface);

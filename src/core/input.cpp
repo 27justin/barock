@@ -1,5 +1,6 @@
 #include "barock/core/input.hpp"
 #include "../log.hpp"
+#include "barock/compositor.hpp"
 #include <fcntl.h>
 #include <libinput.h>
 #include <linux/input.h>
@@ -26,7 +27,8 @@ close_restricted(int fd, void *) {
 
 using namespace barock;
 
-input_manager_t::input_manager_t(const std::string &xdg_seat) {
+input_manager_t::input_manager_t(const std::string &xdg_seat, service_registry_t &registry)
+  : registry(registry) {
   interface_.open_restricted  = open_restriced;
   interface_.close_restricted = close_restricted;
 
@@ -114,7 +116,12 @@ input_manager_t::poll(int timeout) {
         break;
       }
       case LIBINPUT_EVENT_KEYBOARD_KEY: {
-        struct libinput_event_keyboard *k = libinput_event_get_keyboard_event(event);
+        struct libinput_event_keyboard *k         = libinput_event_get_keyboard_event(event);
+        uint32_t                        scancode  = libinput_event_keyboard_get_key(k);
+        uint32_t                        key_state = libinput_event_keyboard_get_key_state(k);
+        xkb_state_update_key(xkb.state,
+                             scancode + 8, // +8: evdev -> xkb
+                             key_state == LIBINPUT_KEY_STATE_PRESSED ? XKB_KEY_DOWN : XKB_KEY_UP);
         on_keyboard_input.emit({ event, k });
         break;
       }

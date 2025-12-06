@@ -601,6 +601,26 @@ namespace barock {
       return *this;
     }
 
+    weak_t &
+    operator=(const weak_t &other) noexcept {
+      if (this == &other)
+        return *this;
+
+      // Release old
+      if (control) {
+        if (control->weak.fetch_sub(1, std::memory_order_acq_rel) == 1 &&
+            control->strong.load(std::memory_order_acquire) == 0) {
+          delete control;
+        }
+      }
+
+      // Take from `other`
+      control = other.control;
+      alias   = other.alias;
+
+      return *this;
+    }
+
     /**
      * @brief Equality operator.
      *

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cfloat>
+#include <cstdlib>
 #include <type_traits>
 
 namespace barock {
@@ -11,9 +13,9 @@ namespace barock {
     _Ty x, y;
 
     template<typename _Conversion>
-    _Conversion
+    point_t<_Conversion>
     to() {
-      return _Conversion{ static_cast<_Conversion::type>(x), static_cast<_Conversion::type>(y) };
+      return point_t<_Conversion>{ static_cast<_Conversion>(x), static_cast<_Conversion>(y) };
     };
 
     template<typename _PTy>
@@ -42,6 +44,48 @@ namespace barock {
       x -= other.x;
       y -= other.y;
       return *this;
+    }
+
+    template<typename _PTy>
+    bool
+    operator>(const point_t<_PTy> &other) const {
+      return x > other.x && y > other.y;
+    }
+
+    template<typename _PTy>
+    bool
+    operator>=(const point_t<_PTy> &other) const {
+      return (*this > other) || (*this == other);
+    }
+
+    template<typename _PTy>
+    bool
+    operator<(const point_t<_PTy> &other) const {
+      return x < other.x && y < other.y;
+    }
+
+    template<typename _PTy>
+    bool
+    operator<=(const point_t<_PTy> &other) const {
+      return (*this < other) || (*this == other);
+    }
+
+    template<typename _PTy>
+    bool
+    operator==(const point_t<_PTy> &other) const {
+      if constexpr (std::is_floating_point_v<_PTy> || std::is_floating_point_v<_Ty>) {
+        // Equality through `FLT_EPSILON`
+        return (std::abs(x - other.x) <= FLT_EPSILON && std::abs(y - other.y));
+      } else {
+        // Equality through `==`
+        return x == other.x && y == other.y;
+      }
+    }
+
+    template<typename _PTy>
+    bool
+    operator!=(const point_t<_PTy> &other) const {
+      return !(*this == other);
     }
   };
 

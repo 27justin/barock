@@ -19,14 +19,13 @@ namespace barock {
   struct surface_t;
   struct input_manager_t;
   enum class direction_t;
+  struct service_registry_t;
 
   class cursor_manager_t {
     private:
     fpoint_t  position_; ///< Position of the cursor
     ipoint_t  hotspot_;  ///< Cursor hotspot in buffer local coordinates
     output_t *output_;   ///< The output the cursor is on
-
-    output_manager_t &output_manager_;
 
     std::variant<shared_t<surface_t>, XcursorImage *> texture_;
 
@@ -35,6 +34,8 @@ namespace barock {
 
     jsl::optional_t<signal_token_t>
       paint_token_; ///< Token for the `on_repaint` handler on the current `output_`
+
+    service_registry_t &registry_;
 
     /**
      * @brief Transfer the cursor onto a different output. If there is
@@ -53,10 +54,11 @@ namespace barock {
     public:
     static constexpr size_t CURSOR_PAINT_LAYER = std::numeric_limits<size_t>::max();
 
-    cursor_manager_t(output_manager_t &, input_manager_t &);
+    cursor_manager_t(service_registry_t &);
+    ~cursor_manager_t();
 
     const fpoint_t &
-    position();
+    position() const;
 
     ///! Set the position of the cursor (in workspace coordinates.)
     const fpoint_t &

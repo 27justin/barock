@@ -6,8 +6,11 @@
 #include <xkbcommon/xkbcommon.h>
 
 #include "barock/core/signal.hpp"
+#include "barock/resource.hpp"
 
 namespace barock {
+  struct service_registry_t;
+
   struct mouse_event_t {
     struct libinput_event         *event;
     struct libinput_event_pointer *pointer;
@@ -41,6 +44,8 @@ namespace barock {
     udev              *udev_;
     int                fd_;
 
+    service_registry_t &registry;
+
     public:
     signal_t<struct libinput_device *> on_device_add;
     signal_t<void>                     on_device_remove;
@@ -58,7 +63,7 @@ namespace barock {
       char        *keymap_string;
     } xkb;
 
-    input_manager_t(const std::string &xdg_seat);
+    input_manager_t(const std::string &xdg_seat, service_registry_t &);
     ~input_manager_t();
 
     int

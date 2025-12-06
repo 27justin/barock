@@ -22,7 +22,8 @@ using namespace barock;
 namespace barock {
   surface_t::surface_t()
     : state({ .subsurface = nullptr })
-    , staging({ .subsurface = nullptr }) {
+    , staging({ .subsurface = nullptr })
+    , role(nullptr) {
 
     // The initial value for an input region is infinite. That means
     // the whole surface will accept input.
@@ -34,16 +35,23 @@ namespace barock {
     , staging(std::exchange(other.staging, { .subsurface = nullptr }))
     , role(std::exchange(other.role, nullptr)) {}
 
-  fpoint_t
+  ipoint_t
+  surface_t::extent() const {
+    if (!state.buffer)
+      return { 0, 0 };
+    else
+      return { state.buffer->width, state.buffer->height };
+  }
+
+  ipoint_t
   surface_t::full_extent() const {
-    fpoint_t region = { state.buffer ? static_cast<float>(state.buffer->width) : 0.f,
-                        state.buffer ? static_cast<float>(state.buffer->height) : 0.f };
+    ipoint_t region = extent();
 
     for (auto &child : state.children) {
       if (auto subsurface = child->surface.lock()) {
-        fpoint_t child_region = subsurface->full_extent();
-        region.x += child_region.x;
-        region.y += child_region.y;
+        auto child_extent = subsurface->full_extent();
+        region.x          = std::max(region.x, child_extent.x + child->position.x);
+        region.y          = std::max(region.y, child_extent.y + child->position.y);
       }
     }
     return region;
@@ -52,6 +60,82 @@ namespace barock {
   bool
   surface_t::has_role() const {
     return role != nullptr;
+  }
+
+  ipoint_t
+  surface_t::position() const {
+    if (!state.subsurface)
+      return { 0, 0 };
+
+    ipoint_t position{ state.subsurface->position };
+    auto     parent = state.subsurface->parent;
+    while (auto surface = parent.lock()) {
+      if (surface->state.subsurface) {
+        position += surface->state.subsurface->position;
+        parent = surface->state.subsurface->parent;
+      } else {
+        // No more parent
+        return position;
+      }
+    }
+    return position;
+  }
+
+  surface_t &
+  surface_t::root() {
+    surface_t *candidate = this;
+    if (!candidate->state.subsurface)
+      return *candidate;
+
+    while (auto surface = candidate->state.subsurface->parent.lock()) {
+      candidate = surface.get();
+      if (!candidate->state.subsurface)
+        return *candidate;
+    }
+    return *candidate;
+  }
+
+  const surface_t &
+  surface_t::root() const {
+    surface_t const *candidate = this;
+    if (!candidate->state.subsurface)
+      return *candidate;
+
+    while (auto surface = candidate->state.subsurface->parent.lock()) {
+      candidate = surface.get();
+      if (!candidate->state.subsurface)
+        return *candidate;
+    }
+    return *candidate;
+  }
+
+  shared_t<surface_t>
+  surface_t::lookup(const ipoint_t &position) {
+    shared_t<surface_t> surface = nullptr;
+
+    INFO("Lookup @ {}, {} (dims: {}, {})", position.x, position.y, extent().x, extent().y);
+
+    for (auto &child : state.children) {
+      if (auto subsurface = child->surface.lock(); subsurface) {
+        auto &child_position = subsurface->state.subsurface->position;
+        // We can ignore subsurfaces that don't match our position
+        if (child_position >= position)
+          continue;
+        // We can also ignore the surface, if it doesn't extend past our point
+        if (subsurface->full_extent() + child_position < position)
+          continue;
+
+        auto vresult = subsurface->lookup(position - child_position);
+        if (vresult)
+          return vresult;
+      }
+    }
+
+    auto dimensions = extent();
+    if (state.subsurface && position >= ipoint_t{ 0, 0 } && position <= dimensions)
+      return state.subsurface->surface.lock();
+
+    return surface;
   }
 }
 

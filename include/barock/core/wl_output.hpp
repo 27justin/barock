@@ -7,15 +7,16 @@ extern struct wl_output_interface wl_output_impl;
 
 namespace barock {
   struct compositor_t;
+  struct service_registry_t;
 
   struct wl_output_t {
     public:
     static constexpr int VERSION = 4;
     wl_global           *wl_output_global;
     wl_display          *display;
-    output_manager_t    &output_manager;
+    service_registry_t  &registry;
 
-    wl_output_t(wl_display *, output_manager_t &);
+    wl_output_t(wl_display *, service_registry_t &registry);
 
     static void
     bind(wl_client *, void *, uint32_t, uint32_t);

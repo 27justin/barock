@@ -69,8 +69,12 @@ create_program(const char *vs_src, const char *fs_src) {
   return gl_shader_t{ program };
 }
 
-void
-barock::initialize_egl() {
+static void
+initialize_egl() {
+  static bool init = false;
+  if (init == true)
+    return;
+
   auto &storage = singleton_t<gl_shader_storage_t>::ensure();
 
   static const char *vs = R"(
@@ -109,6 +113,8 @@ void main() {
 )";
 
   storage.add("quad shader", create_program(vs, fs));
+
+  init = true;
 }
 
 const gl_shader_t &
@@ -162,7 +168,9 @@ operator GLuint() const {
 
 gl_renderer_t::gl_renderer_t(const minidrm::drm::mode_t &mode, minidrm::framebuffer::egl_t &&egl)
   : mode_(mode)
-  , handle_(std::move(egl)) {}
+  , handle_(std::move(egl)) {
+  initialize_egl();
+}
 
 gl_renderer_t::gl_renderer_t(gl_renderer_t &&other)
   : mode_(other.mode_)
@@ -305,7 +313,8 @@ gl_renderer_t::draw(surface_t &surface, const fpoint_t &screen_position) {
     for (auto &subsurface_dao : surface.state.children) {
       if (auto subsurface = subsurface_dao->surface.lock(); subsurface) {
         draw(*subsurface,
-             { screen_position.x + subsurface_dao->x, screen_position.y + subsurface_dao->y });
+             { screen_position.x + subsurface_dao->position.x,
+               screen_position.y + subsurface_dao->position.y });
       }
     }
 

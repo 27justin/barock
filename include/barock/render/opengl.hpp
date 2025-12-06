@@ -74,7 +74,4 @@ namespace barock {
     void
     draw(_XcursorImage *pointer, const fpoint_t &screen_position) override;
   };
-
-  void
-  initialize_egl();
 }
