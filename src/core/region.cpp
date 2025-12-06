@@ -4,15 +4,22 @@
 #include "barock/resource.hpp"
 
 #include <algorithm>
+#include <cstdint>
 #include <wayland-server-core.h>
 
 namespace barock {
+  region_t::region_t(int32_t x, int32_t y, int32_t w, int32_t h)
+    : x(x)
+    , y(y)
+    , w(w)
+    , h(h) {}
+
   region_t
   region_t::operator+(const region_t &other) const {
-    return region_t{ .x = std::min(x, other.x),
-                     .y = std::min(y, other.y),
-                     .w = std::max(other.x + other.w, x + w),
-                     .h = std::max(other.y + other.h, y + h) };
+    return region_t{ std::min(x, other.x),
+                     std::min(y, other.y),
+                     std::max(other.x + other.w, x + w),
+                     std::max(other.y + other.h, y + h) };
   }
 
   void
@@ -30,10 +37,10 @@ namespace barock {
 
     if (x2 <= x1 || y2 <= y1) {
       // No intersection, return an empty region
-      return region_t{ .x = 0, .y = 0, .w = 0, .h = 0 };
+      return region_t{ 0, 0, 0, 0 };
     }
 
-    return region_t{ .x = x1, .y = y1, .w = x2 - x1, .h = y2 - y1 };
+    return region_t{ x1, y1, x2 - x1, y2 - y1 };
   }
 
   void

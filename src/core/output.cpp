@@ -1,3 +1,5 @@
+#include "../log.hpp"
+
 #include "barock/core/output.hpp"
 #include "barock/core/renderer.hpp"
 #include "minidrm.hpp"
@@ -52,7 +54,10 @@ mode_set_allocator_t::mode_set(const minidrm::drm::connector_t &connector,
 }
 
 output_t::output_t(const minidrm::drm::connector_t &connector, const minidrm::drm::mode_t &mode)
-  : connector_(connector)
+  : dirty_(false)
+  , pan_({ 0.f, 0.f })
+  , zoom_(1.f)
+  , connector_(connector)
   , mode_(mode)
   , renderer_(nullptr)
   , top_(nullptr)
@@ -85,8 +90,7 @@ output_t::to<barock::coordinate_space_t::eWorkspace, barock::coordinate_space_t:
   const fpoint_t &from) const {
   fpoint_t xform;
 
-  xform.x = from.x - x_;
-  xform.y = from.y - y_;
+  xform = from - pan_;
 
   // TODO: Actually apply transformation matrix (rotation, additional scaling, etc.)
   return xform;
@@ -98,8 +102,7 @@ output_t::to<barock::coordinate_space_t::eScreenspace, barock::coordinate_space_
   const fpoint_t &from) const {
   fpoint_t xform;
 
-  xform.x = x_ + from.x;
-  xform.y = y_ + from.y;
+  xform = pan_ + from;
 
   // TODO: Actually apply transformation matrix (rotation, additional scaling, etc.)
   return xform;
@@ -147,4 +150,23 @@ output_t::adjacent(direction_t direction) {
     return jsl::nullopt;
 
   return *result;
+}
+
+bool
+output_t::is_visible(const region_t &region) const {
+  region_t bounds{
+    pan_, fpoint_t{ mode_.width() / zoom_, mode_.height() / zoom_ }
+  };
+  return bounds.intersects(region);
+}
+
+const fpoint_t &
+output_t::pan() const {
+  return pan_;
+}
+
+const fpoint_t &
+output_t::pan(const fpoint_t &value) {
+  pan_ = value;
+  return pan_;
 }

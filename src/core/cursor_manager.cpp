@@ -105,10 +105,12 @@ cursor_manager_t::paint(output_t &output) {
   std::visit(
     [&]<typename T>(T &texture) {
       if constexpr (std::is_same_v<std::decay_t<decltype(texture)>, XcursorImage *>) {
-        output.renderer().draw(texture, position_);
+        output.renderer().draw(texture,
+                               output.to<output_t::eWorkspace, output_t::eScreenspace>(position_));
       } else {
         // shared_t<surface_t>
-        output.renderer().draw(*texture, position_ - hotspot_);
+        output.renderer().draw(
+          *texture, output.to<output_t::eWorkspace, output_t::eScreenspace>(position_) - hotspot_);
       }
     },
     texture_);

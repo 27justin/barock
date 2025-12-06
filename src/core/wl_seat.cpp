@@ -397,40 +397,6 @@ wl_seat_t::on_keyboard_input(keyboard_event_t event) {
   return signal_action_t::eOk;
 }
 
-void
-dump_tree(const shared_t<surface_t> &surf, size_t indent = 0) {
-  std::string indent_str;
-  for (int i = 0; i < indent; ++i)
-    indent_str.push_back(' ');
-
-  auto tree_position = surf->position();
-
-  auto local_position =
-    surf->state.subsurface ? surf->state.subsurface->position : ipoint_t{ 0, 0 };
-
-  auto size = surf->state.buffer ? ipoint_t{ surf->state.buffer->width, surf->state.buffer->height }
-                                 : ipoint_t{ 0, 0 };
-
-  std::print("{}Position: {}, {}\n"
-             "{}Local: {}, {}\n"
-             "{}Size: {}, {}\n\n",
-             indent_str,
-             tree_position.x,
-             tree_position.y,
-             indent_str,
-             local_position.x,
-             local_position.y,
-             indent_str,
-             size.x,
-             size.y);
-
-  for (auto &child : surf->state.children) {
-    if (auto subsurf = child->surface.lock(); subsurf) {
-      dump_tree(subsurf, indent + 2);
-    }
-  }
-}
-
 shared_t<resource_t<surface_t>>
 wl_seat_t::find_best_surface(fpoint_t point) const {
   // Find the best surface for the position at `cursor'.
@@ -496,8 +462,9 @@ wl_seat_t::on_mouse_click(mouse_button_t event) {
 
 signal_action_t
 wl_seat_t::on_mouse_move(mouse_event_t event) {
-  auto &input  = *registry.input;
-  auto &cursor = *registry.cursor;
+  auto &input          = *registry.input;
+  auto &cursor         = *registry.cursor;
+  auto &current_output = registry.cursor->current_output();
 
 // We don't have any window active, query one.
 start:
@@ -566,6 +533,5 @@ start:
       }
     }
   }
-
   return signal_action_t::eOk;
 }

@@ -15,6 +15,27 @@ using namespace barock;
 
 namespace barock {
   JANET_MODULE(output_manager_t);
+
+  template<>
+  struct janet_converter_t<output_t> {
+    Janet
+    operator()(const output_t &output) {
+      JanetTable *table = janet_table(4);
+
+      janet_table_put(table, janet_ckeywordv("width"), janet_wrap_integer(output.mode().width()));
+      janet_table_put(table, janet_ckeywordv("height"), janet_wrap_integer(output.mode().height()));
+      janet_table_put(
+        table, janet_ckeywordv("refresh-rate"), janet_wrap_number(output.mode().refresh_rate()));
+
+      auto pan = janet_tuple_begin(2);
+      pan[0]   = janet_wrap_number(output.pan().x);
+      pan[1]   = janet_wrap_number(output.pan().y);
+
+      janet_table_put(table, janet_ckeywordv("pan"), janet_wrap_tuple(janet_tuple_end(pan)));
+
+      return janet_wrap_table(table);
+    }
+  };
 }
 
 struct mode_setting_t {
@@ -156,24 +177,40 @@ JANET_CFUN(cfun_output_get) {
     return janet_wrap_nil();
   }
 
-  JanetTable *table = janet_table(3);
+  auto table = janet_converter_t<output_t>{}(output.value());
+  return table;
+}
 
-  janet_table_put(table, janet_ckeywordv("width"), janet_wrap_integer(output->mode().width()));
-  janet_table_put(table, janet_ckeywordv("height"), janet_wrap_integer(output->mode().height()));
-  janet_table_put(
-    table, janet_ckeywordv("refresh-rate"), janet_wrap_number(output->mode().refresh_rate()));
+JANET_CFUN(cfun_output_pan) {
+  janet_fixarity(argc, 2); // :output-name [x y]
 
-  return janet_wrap_table(table);
+  auto connector_name = janet_getkeyword(argv, 0);
+
+  auto &compositor = singleton_t<compositor_t>::get();
+  auto  output     = compositor.registry_.output->by_name((const char *)connector_name);
+
+  if (output.valid() == false) {
+    return janet_wrap_nil();
+  }
+
+  auto pan = janet_gettuple(argv, 1);
+  auto x   = janet_unwrap_number(pan[0]);
+  auto y   = janet_unwrap_number(pan[1]);
+
+  output.value().pan(fpoint_t{ static_cast<float>(x), static_cast<float>(y) });
+  return janet_wrap_true();
 }
 
 void
 janet_module_t<output_manager_t>::import(JanetTable *env) {
   constexpr static JanetReg output_manager_fns[] = {
     { "output/configure",
-     cfun_output_configure,        "(output-configure output parameters)\n\nConfigure `output' with parameters"       },
+     cfun_output_configure,        "(output/configure output parameters)\n\nConfigure `output' with parameters"       },
     {       "output/get",
      cfun_output_get, "(output/get connector-name)\n\nReturn an object containing information about the output at "
  "connector `connector-name'.\nReturns nil, when the output couldn't be found."                  },
+    {       "output/pan",
+     cfun_output_pan,                   "(output/pan output [x y])\n\nSet the workspace pan to [`x' `y']"             },
     {            nullptr, nullptr,                                                                             nullptr }
   };
   janet_cfuns(env, "barock", output_manager_fns);

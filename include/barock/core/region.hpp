@@ -1,12 +1,23 @@
 #pragma once
 
+#include "barock/core/point.hpp"
+#include "wl/wayland-protocol.h"
 #include <cstdint>
-#include <wayland-server-protocol.h>
 
 namespace barock {
   struct region_t {
     static region_t infinite;
     int32_t         x, y, w, h;
+
+    region_t() = default;
+    region_t(int32_t, int32_t, int32_t, int32_t);
+
+    template<typename _Scalar>
+    region_t(const point_t<_Scalar> &coords, const point_t<_Scalar> &size)
+      : x(coords.x)
+      , y(coords.y)
+      , w(size.x)
+      , h(size.y) {}
 
     region_t
     operator+(const region_t &) const;

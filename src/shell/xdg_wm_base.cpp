@@ -67,6 +67,12 @@ namespace barock {
     auto &windows = output.metadata.get<xdg_window_list_t>();
     for (auto &xdg_surface : windows) {
       if (auto surface = xdg_surface->surface.lock(); surface) {
+        // Cull windows that are not visible
+        if (output.is_visible({ xdg_surface->position, xdg_surface->size }) == false) {
+          WARN("Window is not visible. Culling.");
+          continue;
+        }
+
         auto position = output.to<output_t::eWorkspace, output_t::eScreenspace>(
           xdg_surface->position - xdg_surface->offset);
 

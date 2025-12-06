@@ -113,15 +113,14 @@ namespace barock {
   surface_t::lookup(const ipoint_t &position) {
     shared_t<surface_t> surface = nullptr;
 
-    INFO("Lookup @ {}, {} (dims: {}, {})", position.x, position.y, extent().x, extent().y);
-
     for (auto &child : state.children) {
       if (auto subsurface = child->surface.lock(); subsurface) {
         auto &child_position = subsurface->state.subsurface->position;
         // We can ignore subsurfaces that don't match our position
         if (child_position >= position)
           continue;
-        // We can also ignore the surface, if it doesn't extend past our point
+
+        // We can also ignore the surface if it doesn't extend past our point
         if (subsurface->full_extent() + child_position < position)
           continue;
 

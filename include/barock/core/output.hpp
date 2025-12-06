@@ -83,8 +83,8 @@ namespace barock {
     bool dirty_;
     // mat4x4 transform;
 
-    float x_, y_; ///< Pan
-    float zoom_;  ///< Zoom
+    fpoint_t pan_;  ///< Pan
+    float    zoom_; ///< Zoom
 
     output_t *top_, *right_, *bottom_, *left_;
 
@@ -162,5 +162,30 @@ namespace barock {
       renderer_ = std::make_unique<_Backend>(std::move(backend));
       return *renderer_;
     }
+
+    /**
+     * @brief Check if `region' is visible given the current output configuration.
+     * NOTE: `region' is required to be workspace local.
+     */
+    bool
+    is_visible(const region_t &region) const;
+
+    /**
+     * @brief Return the workspace pan
+     */
+    const fpoint_t &
+    pan() const;
+
+    /**
+     * @brief Set the workspace pan to the given value.
+     */
+    const fpoint_t &
+    pan(const fpoint_t &);
+
+    /**
+     * @brief Return the workspace zoom
+     */
+    float
+    zoom() const;
   };
 }
