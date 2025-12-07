@@ -4,6 +4,7 @@
 #include <memory>
 #include <vector>
 
+#include "barock/core/animation.hpp"
 #include "barock/core/metadata.hpp"
 #include "barock/core/point.hpp"
 #include "barock/core/quad_tree.hpp"
@@ -83,8 +84,8 @@ namespace barock {
     bool dirty_;
     // mat4x4 transform;
 
-    fpoint_t pan_;  ///< Pan
-    float    zoom_; ///< Zoom
+    animation_t<fpoint_t> pan_;  ///< Pan
+    float                 zoom_; ///< Zoom
 
     output_t *top_, *right_, *bottom_, *left_;
 
@@ -93,7 +94,6 @@ namespace barock {
     minidrm::drm::connector_t   connector_;
     minidrm::drm::mode_t        mode_;
     std::unique_ptr<renderer_t> renderer_; ///< DRM specific stuff is hidden into this
-
     public:
     static constexpr coordinate_space_t eWorkspace   = coordinate_space_t::eWorkspace;
     static constexpr coordinate_space_t eScreenspace = coordinate_space_t::eScreenspace;
@@ -173,19 +173,25 @@ namespace barock {
     /**
      * @brief Return the workspace pan
      */
-    const fpoint_t &
+    fpoint_t
     pan() const;
 
     /**
      * @brief Set the workspace pan to the given value.
      */
-    const fpoint_t &
-    pan(const fpoint_t &);
+    fpoint_t
+    pan(const fpoint_t &, bool skip_animation = false);
 
     /**
      * @brief Return the workspace zoom
      */
     float
     zoom() const;
+
+    /**
+     * @brief Render a frame and swap buffers.
+     */
+    void
+    paint();
   };
 }

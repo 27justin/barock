@@ -182,7 +182,7 @@ JANET_CFUN(cfun_output_get) {
 }
 
 JANET_CFUN(cfun_output_pan) {
-  janet_fixarity(argc, 2); // :output-name [x y]
+  janet_arity(argc, 2, 3); // :output-name [x y &opt skip-animation]
 
   auto connector_name = janet_getkeyword(argv, 0);
 
@@ -190,6 +190,7 @@ JANET_CFUN(cfun_output_pan) {
   auto  output     = compositor.registry_.output->by_name((const char *)connector_name);
 
   if (output.valid() == false) {
+    WARN("Connector :{} not found during (output/pan)", (const char *)connector_name);
     return janet_wrap_nil();
   }
 
@@ -197,7 +198,9 @@ JANET_CFUN(cfun_output_pan) {
   auto x   = janet_unwrap_number(pan[0]);
   auto y   = janet_unwrap_number(pan[1]);
 
-  output.value().pan(fpoint_t{ static_cast<float>(x), static_cast<float>(y) });
+  auto animation = janet_optboolean(argv, argc, 2, true);
+
+  output.value().pan(fpoint_t{ static_cast<float>(x), static_cast<float>(y) }, animation == 0);
   return janet_wrap_true();
 }
 
@@ -205,13 +208,13 @@ void
 janet_module_t<output_manager_t>::import(JanetTable *env) {
   constexpr static JanetReg output_manager_fns[] = {
     { "output/configure",
-     cfun_output_configure,        "(output/configure output parameters)\n\nConfigure `output' with parameters"       },
+     cfun_output_configure,          "(output/configure output parameters)\n\nConfigure `output' with parameters"       },
     {       "output/get",
-     cfun_output_get, "(output/get connector-name)\n\nReturn an object containing information about the output at "
- "connector `connector-name'.\nReturns nil, when the output couldn't be found."                  },
+     cfun_output_get,   "(output/get connector-name)\n\nReturn an object containing information about the output at "
+   "connector `connector-name'.\nReturns nil, when the output couldn't be found."                  },
     {       "output/pan",
-     cfun_output_pan,                   "(output/pan output [x y])\n\nSet the workspace pan to [`x' `y']"             },
-    {            nullptr, nullptr,                                                                             nullptr }
+     cfun_output_pan, "(output/pan output [x y] &opt skip-animation)\n\nSet the workspace pan to [`x' `y']"             },
+    {            nullptr, nullptr,                                                                               nullptr }
   };
   janet_cfuns(env, "barock", output_manager_fns);
 }

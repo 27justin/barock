@@ -76,18 +76,10 @@ main() {
   static int     throttle = 0;
 
   while (1) {
-    wl_event_loop_dispatch(loop, -1); // 0 = non-blocking, -1 = blocking
+    wl_event_loop_dispatch(loop, 0); // 0 = non-blocking, -1 = blocking
     for (auto &screen : compositor.registry_.output->outputs()) {
-      screen->renderer().bind();
-      screen->renderer().clear(0.08f, 0.08f, 0.15f, 1.f);
-
-      for (auto &[_, signal] : screen->events.on_repaint) {
-        signal.emit(*screen);
-      }
-
-      screen->renderer().commit();
+      screen->paint();
     }
-
     wl_display_flush_clients(compositor.display());
   }
 

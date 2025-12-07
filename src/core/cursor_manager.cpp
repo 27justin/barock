@@ -202,7 +202,6 @@ cursor_manager_t::on_mouse_move(mouse_event_t move) {
   // Therefore to correctly handle these two cases, we query all
   // active monitors for their size, and from that compute a
   // relative cursor position.
-
   double dx = 0., dy = 0.;
 
   // Calculate the delta the mouse moved.
@@ -238,18 +237,6 @@ cursor_manager_t::on_mouse_move(mouse_event_t move) {
     position_.y += dy * 0.1;
   }
 
-  // if (compositor.move_global_workspace) {
-  //   // Pan the workspace ...
-  //   compositor.x -= dx;
-  //   compositor.y -= dy;
-
-  //   // Negate the cursor movement, to make it static during panning.
-  //   cursor.x -= dx;
-  //   cursor.y -= dy;
-
-  //   return;
-  // }
-
   direction_t transfer_direction = direction_t::eNone;
   if (position_.x > output_->mode().width())
     transfer_direction |= direction_t::eEast;
@@ -275,10 +262,6 @@ cursor_manager_t::on_mouse_move(mouse_event_t move) {
     }
   }
 
-  // First figure out whether a surface currently has mouse focus.
-  if (auto focus = focus_.lock()) {
-    return signal_action_t::eOk;
-  }
   return signal_action_t::eOk;
 }
 
@@ -290,4 +273,9 @@ cursor_manager_t::on_mouse_click(mouse_button_t event) {
 signal_action_t
 cursor_manager_t::on_mouse_scroll(mouse_axis_t event) {
   return signal_action_t::eOk;
+}
+
+void
+cursor_manager_t::set_cursor_position(const fpoint_t &position) {
+  position_ = position;
 }

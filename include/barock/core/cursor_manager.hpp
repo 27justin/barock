@@ -88,5 +88,8 @@ namespace barock {
     cursor() const;
 
     void set_cursor(shared_t<surface_t>, ipoint_t);
+
+    void
+    set_cursor_position(const fpoint_t &position);
   };
 }

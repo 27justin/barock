@@ -115,7 +115,11 @@ compositor_t::load_file(const std::string &file) {
   std::stringstream ss;
   ss << stream.rdbuf();
 
-  janet_dostring(context_, ss.str().c_str(), file.c_str(), nullptr);
+  auto code = janet_dostring(context_, ss.str().c_str(), file.c_str(), nullptr);
+  if (code != 0) {
+    CRITICAL("Failed to load Janet config: {}", code);
+    std::exit(1);
+  }
 }
 
 // void

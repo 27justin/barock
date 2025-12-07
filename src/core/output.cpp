@@ -2,6 +2,7 @@
 
 #include "barock/core/output.hpp"
 #include "barock/core/renderer.hpp"
+#include "barock/util.hpp"
 #include "minidrm.hpp"
 
 #include <stdexcept>
@@ -53,9 +54,15 @@ mode_set_allocator_t::mode_set(const minidrm::drm::connector_t &connector,
   return std::move(handle);
 }
 
+float
+easing(float x) {
+  return x < 0.5 ? (1 - std::sqrt(1 - std::pow(2 * x, 2))) / 2
+                 : (std::sqrt(1 - std::pow(-2 * x + 2, 2)) + 1) / 2;
+}
+
 output_t::output_t(const minidrm::drm::connector_t &connector, const minidrm::drm::mode_t &mode)
   : dirty_(false)
-  , pan_({ 0.f, 0.f })
+  , pan_({ 0.f, 0.f }, { 0.f, 0.f }, 1.f, easing)
   , zoom_(1.f)
   , connector_(connector)
   , mode_(mode)
@@ -90,7 +97,7 @@ output_t::to<barock::coordinate_space_t::eWorkspace, barock::coordinate_space_t:
   const fpoint_t &from) const {
   fpoint_t xform;
 
-  xform = from - pan_;
+  xform = from - pan_.sample();
 
   // TODO: Actually apply transformation matrix (rotation, additional scaling, etc.)
   return xform;
@@ -102,7 +109,7 @@ output_t::to<barock::coordinate_space_t::eScreenspace, barock::coordinate_space_
   const fpoint_t &from) const {
   fpoint_t xform;
 
-  xform = pan_ + from;
+  xform = pan_.sample() + from;
 
   // TODO: Actually apply transformation matrix (rotation, additional scaling, etc.)
   return xform;
@@ -155,18 +162,37 @@ output_t::adjacent(direction_t direction) {
 bool
 output_t::is_visible(const region_t &region) const {
   region_t bounds{
-    pan_, fpoint_t{ mode_.width() / zoom_, mode_.height() / zoom_ }
+    pan_.sample(), fpoint_t{ mode_.width() / zoom_, mode_.height() / zoom_ }
   };
   return bounds.intersects(region);
 }
 
-const fpoint_t &
+fpoint_t
 output_t::pan() const {
-  return pan_;
+  return pan_.sample();
 }
 
-const fpoint_t &
-output_t::pan(const fpoint_t &value) {
-  pan_ = value;
-  return pan_;
+fpoint_t
+output_t::pan(const fpoint_t &value, bool skip_animation) {
+  if (!skip_animation) {
+    pan_ = animation_t<fpoint_t>(pan_.sample(), value, 0.3f, easing);
+  } else {
+    pan_ = animation_t<fpoint_t>(pan_.sample(), value, 0.3f, easing);
+    pan_.update(0.3f); // Skip to done
+  }
+  return pan_.sample();
+}
+
+void
+output_t::paint() {
+  uint32_t start = current_time_msec();
+  renderer_->bind();
+  renderer_->clear(0.08f, 0.08f, 0.15f, 1.f);
+  for (auto &[_, signal] : events.on_repaint) {
+    signal.emit(*this);
+  }
+  renderer_->commit();
+
+  uint32_t end = current_time_msec();
+  pan_.update((end - start) / 1000.f);
 }
