@@ -62,8 +62,17 @@ main() {
     return 1;
   }
 
-  auto card = drm::cards()[0];
-  auto hdl  = card.open();
+  auto cards = drm::cards();
+  if (cards.size() == 0) {
+    CRITICAL("Found no graphics card, bailing out!");
+    return 1;
+  }
+
+  // Use the first one.
+  auto &card = cards.front();
+
+  TRACE("Using DRM card at {}", card.path.string());
+  auto hdl = card.open();
 
   auto compositor = compositor_t(hdl, getenv("XDG_SEAT"));
   compositor.load_file("config.janet");
@@ -83,5 +92,5 @@ main() {
     wl_display_flush_clients(compositor.display());
   }
 
-  return 1;
+  return 0;
 }

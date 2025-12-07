@@ -26,7 +26,6 @@
 #include <cstring>
 #include <drm_fourcc.h>
 #include <fcntl.h>
-#include <iostream>
 #include <linux/kd.h>
 #include <poll.h>
 #include <sys/ioctl.h>
@@ -137,6 +136,13 @@ namespace minidrm {
        */
       std::string
       type() const;
+
+      /**
+       * @brief Returns the type of the connector, e.g. `HDMI-A`, or `DP` suffixed by the connector
+       * type id, resulting in unique connector names (e.g. `DP-1`, `DP-2`, etc.).
+       */
+      std::string
+      name() const;
 
       drmModeConnection
       connection() const;
@@ -260,9 +266,9 @@ namespace minidrm::drm {
       throw std::runtime_error("Failed to open DRM device.");
     }
 
-    if (drmSetMaster(fd)) {
-      perror("drmSetMaster");
-    }
+    // if (drmSetMaster(fd)) {
+    //   perror("drmSetMaster");
+    // }
 
     data = new handle_data_t;
 #if defined(MINIDRM_EGL) || defined(MINIDRM_VULKAN)
@@ -352,6 +358,7 @@ namespace minidrm::drm {
   handle_t::connectors() const {
     std::vector<connector_t> result;
     drmModeRes              *resources = drmModeGetResources(fd);
+
     for (int i = 0; i < resources->count_connectors; ++i) {
       drmModeConnector *conn = drmModeGetConnector(fd, resources->connectors[i]);
       if (!conn)
@@ -431,6 +438,14 @@ namespace minidrm::drm {
     return name;
   }
 
+  std::string
+  connector_t::name() const {
+    auto name = type();
+    name += '-';
+    name += std::to_string(connector->connector_type_id);
+    return name;
+  }
+
   uint32_t
   mode_t::width() const {
     return mode.hdisplay;
@@ -464,11 +479,27 @@ namespace minidrm::drm {
     for (auto const &ent : fs::directory_iterator(DRI_PATH)) {
       auto filename = ent.path().filename();
       // Check whether the file starts with `card`
-      if (filename.string().find("card") != 0)
+      if (filename.string().find("card") == std::string::npos)
         continue;
 
       cards.emplace_back(card_t{ .path = ent.path() });
     }
+
+    // Sort by ascending index of the card (i.e. card0, card1, etc.)
+    std::sort(cards.begin(), cards.end(), [](const card_t &a, const card_t &b) {
+      // Get the filename (e.g., "card0", "card12")
+      std::string name_a = a.path.filename().string();
+      std::string name_b = b.path.filename().string();
+
+      // Offset until the number within the filenames, i.e.
+      constexpr size_t pos = strlen("card");
+
+      // Extract the numerical index
+      int index_a = std::stoi(name_a.substr(pos));
+      int index_b = std::stoi(name_b.substr(pos));
+
+      return index_a < index_b;
+    });
 
     return cards;
   }
