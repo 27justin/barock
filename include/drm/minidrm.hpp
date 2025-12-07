@@ -26,7 +26,10 @@
 #include <cstring>
 #include <drm_fourcc.h>
 #include <fcntl.h>
+#include <iostream>
+#include <linux/kd.h>
 #include <poll.h>
+#include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <unistd.h>
 #include <xf86drm.h>
@@ -103,6 +106,7 @@ namespace minidrm {
 
       std::vector<connector_t>
       connectors() const;
+
       std::vector<crtc_t>
       crtcs() const;
 
@@ -128,6 +132,9 @@ namespace minidrm {
       connector_t(const connector_t &);
       ~connector_t();
 
+      /**
+       * @brief Returns the type of the connector, e.g. `HDMI-A`, or `DP` for display port.
+       */
       std::string
       type() const;
 
@@ -251,6 +258,10 @@ namespace minidrm::drm {
     , references(new std::atomic<uintmax_t>(1)) {
     if (fd < 0) {
       throw std::runtime_error("Failed to open DRM device.");
+    }
+
+    if (drmSetMaster(fd)) {
+      perror("drmSetMaster");
     }
 
     data = new handle_data_t;
@@ -417,7 +428,6 @@ namespace minidrm::drm {
     if (!name) {
       return "Unknown";
     }
-
     return name;
   }
 

@@ -256,9 +256,17 @@ cursor_manager_t::on_mouse_move(mouse_event_t move) {
 
     if (!transferred) {
       // Output has no adjacent monitor in the direction, if this is
-      // the case, we clamp the position to our output size.
-      position_.x = std::clamp(position_.x, 0.f, static_cast<float>(output_->mode().width()));
-      position_.y = std::clamp(position_.y, 0.f, static_cast<float>(output_->mode().height()));
+      // the case, we clamp the position to our viewport.
+      region_t viewport = {
+        output_->pan(),
+        { static_cast<float>(output_->mode().width()),
+                 static_cast<float>(output_->mode().height()) }
+      };
+
+      position_.x = std::clamp(
+        position_.x, static_cast<float>(viewport.x), static_cast<float>(viewport.x + viewport.w));
+      position_.y = std::clamp(
+        position_.y, static_cast<float>(viewport.y), static_cast<float>(viewport.y + viewport.w));
     }
   }
 

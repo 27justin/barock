@@ -52,6 +52,9 @@ compositor_t::compositor_t(minidrm::drm::handle_t drm_handle, const std::string 
   TRACE("* Initializing Event Loop");
   registry_.event_loop = make_unique<event_loop_t>(wl_event_loop);
 
+  TRACE("* Initializing Outputs");
+  registry_.output = make_unique<output_manager_t>(drm_handle);
+
   TRACE("* Initializing Input Manager");
   registry_.input = make_unique<input_manager_t>(seat, registry_);
 
@@ -63,8 +66,6 @@ compositor_t::compositor_t(minidrm::drm::handle_t drm_handle, const std::string 
       return 0;
     },
     this);
-
-  registry_.output = make_unique<output_manager_t>(drm_handle);
 
   TRACE("* Initializing Cursor Manager");
   registry_.cursor = make_unique<cursor_manager_t>(registry_);

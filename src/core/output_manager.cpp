@@ -22,8 +22,10 @@ output_manager_t::output_manager_t(minidrm::drm::handle_t handle)
   for (auto const &connector : handle_.connectors()) {
     // We do not care for unused connectors (TODO: though we should,
     // atleast keep track of them.)
-    if (connector.connection() == DRM_MODE_DISCONNECTED)
+    if (connector.connection() == DRM_MODE_DISCONNECTED) {
+      TRACE("Skipping connector {} (disconnected)", connector.type());
       continue;
+    }
 
     crtc_planner_.adopt(connector);
     outputs_.emplace_back(new output_t{ connector, connector.modes()[0] });

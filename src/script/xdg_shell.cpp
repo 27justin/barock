@@ -56,8 +56,8 @@ JANET_CFUN(cfun_xdg_set_position) {
   janet_fixarity(argc, 3);
 
   auto table = janet_gettable(argv, 0);
-  auto x     = janet_getinteger(argv, 1);
-  auto y     = janet_getinteger(argv, 2);
+  auto x     = janet_getnumber(argv, 1);
+  auto y     = janet_getnumber(argv, 2);
 
   auto connector = janet_table_get(table, janet_ckeywordv("output"));
   auto app_id    = janet_table_get(table, janet_ckeywordv("app-id"));
@@ -66,7 +66,9 @@ JANET_CFUN(cfun_xdg_set_position) {
   auto &compositor = singleton_t<compositor_t>::get();
   auto  output = compositor.registry_.output->by_name((const char *)janet_unwrap_string(connector));
   if (output.valid() == false) {
-    return janet_wrap_nil();
+    ERROR("Tried to (xdg/set-position) on connector {}, which is not connected.",
+          (const char *)janet_unwrap_string(connector));
+    return janet_wrap_false();
   }
 
   auto &window_list = output->metadata.get<xdg_window_list_t>();
@@ -79,7 +81,7 @@ JANET_CFUN(cfun_xdg_set_position) {
 
   if (window == window_list.end()) {
     ERROR("Tried to set position on window that couldn't be found.");
-    return janet_wrap_nil();
+    return janet_wrap_false();
   }
 
   (*window)->position.x = x;
