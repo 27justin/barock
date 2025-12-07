@@ -282,7 +282,7 @@ get_workspace_position(surface_t &surface) {
   // Add XDG surface position & offset
   if (root.has_role()) {
     if (root.role->type_id() == xdg_surface_t::id()) {
-      position += reinterpret_cast<xdg_surface_t *>(root.role)->position;
+      position += shared_cast<xdg_surface_t>(root.role)->position;
     }
   }
 
@@ -297,7 +297,7 @@ get_surface_offset(surface_t &surface) {
   // Add XDG surface offset & offset
   if (root.has_role()) {
     if (root.role->type_id() == xdg_surface_t::id()) {
-      offset = reinterpret_cast<xdg_surface_t *>(root.role)->offset.to<int>();
+      offset = shared_cast<xdg_surface_t>(root.role)->offset.to<int>();
     }
   }
 
@@ -307,7 +307,7 @@ get_surface_offset(surface_t &surface) {
 ipoint_t
 get_surface_dimensions(surface_t &surface) {
   if (surface.has_role() && surface.role->type_id() == xdg_surface_t::id()) {
-    auto xdg = reinterpret_cast<xdg_surface_t *>(surface.role);
+    auto xdg = shared_cast<xdg_surface_t>(surface.role);
     return xdg->size.to<int>();
   } else {
     return surface.extent();
@@ -445,6 +445,15 @@ wl_seat_t::on_mouse_click(mouse_button_t event) {
   // surface.
   if (auto surface = focus_.pointer.lock(); surface) {
     set_keyboard_focus(surface);
+
+    // Also activate this xdg_window (?) via the xdg_shell, and raise
+    // it to the top.
+    if (surface->has_role() && surface->role->type_id() == xdg_surface_t::id()) {
+      auto xdg = shared_cast<xdg_surface_t>(surface->role);
+      registry.xdg_shell->raise_to_top(xdg);
+      registry.xdg_shell->activate(xdg);
+    }
+
     // Find the attached wl_seat
     if (auto seat = find(surface->owner()); seat) {
       if (auto pointer = seat->pointer.lock(); pointer) {

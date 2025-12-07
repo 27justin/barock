@@ -78,7 +78,7 @@ namespace barock {
     surface_state_t state,
       staging; // Surface state is double buffered
 
-    base_surface_role_t *role;
+    shared_t<base_surface_role_t> role;
 
     struct {
       signal_t<shm_buffer_t &> on_buffer_attach;

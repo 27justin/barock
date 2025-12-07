@@ -5,6 +5,7 @@
 #include "barock/core/surface.hpp"
 #include "barock/fbo.hpp"
 #include "barock/resource.hpp"
+#include "jsl/optional.hpp"
 
 #include <any>
 #include <cstdint>
@@ -41,16 +42,16 @@ namespace barock {
     ~xdg_surface_t();
     xdg_surface_t(xdg_shell_t &parent, shared_t<resource_t<surface_t>> base);
 
-    template<typename Cast>
-    shared_t<Cast>
-    get_role() {
-      return shared_cast<Cast>(role_impl);
+    template<typename _Cast>
+    shared_t<_Cast>
+    as() {
+      return shared_cast<_Cast>(role_impl);
     }
 
-    template<typename Cast>
-    shared_t<Cast>
-    get_role() const {
-      return shared_cast<Cast>(*const_cast<decltype(role_impl) *>(&role_impl));
+    template<typename _Cast>
+    shared_t<_Cast>
+    as() const {
+      return shared_cast<_Cast>(*const_cast<decltype(role_impl) *>(&role_impl));
     }
   };
 
@@ -91,7 +92,14 @@ namespace barock {
     shared_t<resource_t<xdg_surface_t>>
     by_position(output_t &, const fpoint_t &);
 
+    shared_t<xdg_toplevel_t>
+      by_app_id(std::string_view, jsl::optional_t<const output_t &> = jsl::nullopt) const;
+
+    void raise_to_top(shared_t<xdg_surface_t>, jsl::optional_t<output_t &> = jsl::nullopt);
+
     private:
+    weak_t<resource_t<xdg_surface_t>> activated_;
+
     static void
     bind(wl_client *, void *, uint32_t, uint32_t);
 

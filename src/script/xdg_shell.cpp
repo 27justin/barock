@@ -2,6 +2,7 @@
 
 #include "barock/compositor.hpp"
 #include "barock/core/signal.hpp"
+#include "barock/script/interop.hpp"
 #include "barock/script/janet.hpp"
 #include "barock/shell/xdg_surface.hpp"
 #include "barock/shell/xdg_toplevel.hpp"
@@ -53,16 +54,16 @@ namespace barock {
 using namespace barock;
 
 JANET_CFUN(cfun_xdg_set_position) {
-  janet_fixarity(argc, 3);
+  janet_arity(argc, 2, 3);
 
-  auto table = janet_gettable(argv, 0);
-  auto x     = janet_getnumber(argv, 1);
-  auto y     = janet_getnumber(argv, 2);
+  int  arg   = 0;
+  auto table = janet_gettable(argv, arg++);
+  auto point = janet_getpoint<float>(argv, arg, true);
 
   auto connector = janet_table_get(table, janet_ckeywordv("output"));
   auto app_id    = janet_table_get(table, janet_ckeywordv("app-id"));
 
-  // Find the window on (get table :output)
+  // Find the window on (table :output)
   auto &compositor = singleton_t<compositor_t>::get();
   auto  output = compositor.registry_.output->by_name((const char *)janet_unwrap_string(connector));
   if (output.valid() == false) {
@@ -84,18 +85,53 @@ JANET_CFUN(cfun_xdg_set_position) {
     return janet_wrap_false();
   }
 
-  (*window)->position.x = x;
-  (*window)->position.y = y;
+  (*window)->position.x = point.x;
+  (*window)->position.y = point.y;
+  return janet_wrap_true();
+}
+
+JANET_CFUN(cfun_raise_to_top) {
+  // (xdg/raise-to-top window-table &opt :output)
+  janet_arity(argc, 1, 2);
+  auto &compositor = singleton_t<compositor_t>::get();
+
+  auto window = janet_gettable(argv, 0);
+  auto app_id = janet_unwrap_string(janet_table_get(window, janet_ckeywordv("app-id")));
+
+  auto xdg_toplevel = compositor.registry_.xdg_shell->by_app_id((const char *)app_id);
+
+  if (!xdg_toplevel) {
+    ERROR("(xdg-raise-to-top window) couldn't find window with :app-id '{}'", (const char *)app_id);
+    return janet_wrap_false();
+  }
+
+  auto output_name = janet_optkeyword(argv, argc, 1, janet_cstring("all"));
+  if ("all" == std::string((const char *)output_name)) {
+    // Raise to top on all outputs
+    compositor.registry_.xdg_shell->raise_to_top(xdg_toplevel->xdg_surface.lock());
+  } else {
+    auto output = compositor.registry_.output->by_name((const char *)output_name);
+    compositor.registry_.xdg_shell->raise_to_top(xdg_toplevel->xdg_surface.lock(), output);
+  }
+
+  return janet_wrap_true();
+}
+
+JANET_CFUN(cfun_activate) {
+  return janet_wrap_true();
+}
+
+JANET_CFUN(cfun_deactivate) {
   return janet_wrap_true();
 }
 
 signal_action_t
 dispatch_xdg_window_new(xdg_toplevel_t &toplevel) {
   auto &compositor = singleton_t<compositor_t>::get();
-  TRACE("(janet module xdg_toplevel_t) Dispatching `xdg-window-new'");
+  TRACE("(janet module xdg_toplevel_t) Dispatching `xdg-new-window-hook'");
 
   Janet value;
-  janet_resolve(compositor.context_, janet_csymbol("xdg-window-new"), &value);
+  janet_resolve(compositor.context_, janet_csymbol("xdg-new-window-hook"), &value);
 
   if (janet_type(value) != JANET_ARRAY) {
     // TODO: Gracefully handle failure
@@ -120,15 +156,18 @@ void
 janet_module_t<xdg_shell_t>::import(JanetTable *env) {
   constexpr static JanetReg xdg_fns[] = {
     { "xdg/set-position",
-     cfun_xdg_set_position, "(xdg/set-position window-table)\n\nSet the position of the window on the workspace (in "
- "workspace local coordinates.)"            },
-    {            nullptr, nullptr,                              nullptr }
+     cfun_xdg_set_position,       "(xdg/set-position window-table)\n\nSet the position of the window on the workspace (in "
+       "workspace local coordinates.)"            },
+    { "xdg/raise-to-top",
+     cfun_raise_to_top, "(xdg/raise-to-top window-table &opt output)\n\nRaise the window to the top (z-order) on the "
+ "`output', or all outputs, if unset."                },
+    {            nullptr, nullptr,                                    nullptr }
   };
 
   janet_cfuns(env, "barock", xdg_fns);
 
   // Hooks
-  janet_def(env, "xdg-window-new", janet_wrap_array(janet_array(0)), "Event list");
+  janet_def(env, "xdg-new-window-hook", janet_wrap_array(janet_array(0)), "Event list");
 
   auto &compositor = singleton_t<compositor_t>::get();
   compositor.registry_.xdg_shell->events.on_toplevel_new.connect(&dispatch_xdg_window_new);

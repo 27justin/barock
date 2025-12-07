@@ -2,6 +2,7 @@
 
 #include "barock/compositor.hpp"
 #include "barock/core/output_manager.hpp"
+#include "barock/script/interop.hpp"
 #include "barock/script/janet.hpp"
 #include "barock/singleton.hpp"
 
@@ -24,6 +25,12 @@ namespace barock {
 
       janet_table_put(table, janet_ckeywordv("width"), janet_wrap_integer(output.mode().width()));
       janet_table_put(table, janet_ckeywordv("height"), janet_wrap_integer(output.mode().height()));
+
+      janet_table_put(table,
+                      janet_ckeywordv("size"),
+                      janet_converter_t<ipoint_t>{}({ static_cast<int>(output.mode().width()),
+                                                      static_cast<int>(output.mode().height()) }));
+
       janet_table_put(
         table, janet_ckeywordv("refresh-rate"), janet_wrap_number(output.mode().refresh_rate()));
 

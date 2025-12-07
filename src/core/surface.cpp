@@ -59,7 +59,7 @@ namespace barock {
 
   bool
   surface_t::has_role() const {
-    return role != nullptr;
+    return role.get() != nullptr;
   }
 
   ipoint_t

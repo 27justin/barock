@@ -36,6 +36,12 @@ namespace barock {
     }
 
     template<typename _Ty>
+    const std::remove_cvref_t<_Ty> &
+    get() const {
+      return *reinterpret_cast<const _Ty *>(data.at(typeid(std::remove_cvref_t<_Ty>)).get());
+    }
+
+    template<typename _Ty>
     void
     remove() {
       data.erase(typeid(std::remove_cvref_t<_Ty>));
