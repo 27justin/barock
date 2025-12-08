@@ -2,6 +2,7 @@
 
 #include <functional>
 #include <janet.h>
+#include <string>
 #include <vector>
 
 namespace barock {
@@ -64,6 +65,32 @@ namespace barock {
     Janet
     operator()(const _Ty &ty);
   };
+
+  template<typename... Args>
+  int
+  dispatch_event_hook(JanetTable *env, const std::string &symbol, Args &&...args) {
+    Janet list;
+    janet_resolve(env, janet_csymbol(symbol.c_str()), &list);
+
+    auto arg_list = janet_array(sizeof...(args));
+    int  i        = 0;
+    ((arg_list->data[i++] = janet_converter_t<Args>{}(args)), ...);
+
+    JanetArray *callbacks = janet_unwrap_array(list);
+    for (int32_t i = 0; i < callbacks->count; ++i) {
+      if (janet_type(callbacks->data[i]) != JANET_FUNCTION) {
+        // TODO: Trace this case.
+        continue;
+      }
+
+      JanetFunction *cb    = janet_unwrap_function(callbacks->data[i]);
+      JanetFiber    *fiber = janet_fiber(cb, sizeof...(args), sizeof...(args), arg_list->data);
+      Janet          value;
+      janet_continue(fiber, janet_wrap_nil(), &value);
+    }
+
+    return callbacks->count;
+  }
 
 #define JANET_MODULE(type_name)                                                                    \
   template<>                                                                                       \

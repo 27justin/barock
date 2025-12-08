@@ -117,15 +117,13 @@ JANET_CFUN(cfun_output_configure) {
   auto parameters = janet_gettable(argv, 1);
 
   auto &compositor = singleton_t<compositor_t>::get();
-  // Find the connector
-  auto &outputs = compositor.registry_.output->outputs();
-  auto  it      = std::find_if(outputs.begin(), outputs.end(), [connector](auto &output) {
-    return output->connector().type() == std::string_view((const char *)connector);
-  });
+  auto  output     = compositor.registry_.output->by_name((const char *)connector);
 
-  if (it == outputs.end()) {
-    WARN("Tried to configure output '{}', which is not connected.", (const char *)connector);
-    return janet_wrap_nil();
+  if (output.valid() == false) {
+    ERROR("(output/configure :{}) Unknown output '{}'",
+          (const char *)connector,
+          (const char *)connector);
+    return janet_wrap_false();
   }
 
   // Else, we can parse the parameters table
@@ -141,7 +139,7 @@ JANET_CFUN(cfun_output_configure) {
 
   // List the modes we have, and try to match either the exact one, or
   // the preferred.
-  auto &drm_connector = (*it)->connector();
+  auto &drm_connector = output->connector();
   auto  modes         = drm_connector.modes();
   auto  best_match    = modes.end();
 
@@ -163,13 +161,32 @@ JANET_CFUN(cfun_output_configure) {
     return janet_wrap_false();
   }
 
-  compositor.registry_.output->configure(**it, *best_match);
+  compositor.registry_.output->configure(*output, *best_match);
   INFO("Configured '{}' to use mode {}x{} @ {} Hz",
        (const char *)connector,
        best_match->width(),
        best_match->height(),
        best_match->refresh_rate());
 
+  // Test for screen arrangement
+  std::map<const char *, direction_t> adjacent_map = {
+    {    "top", direction_t::eNorth },
+    {  "right",  direction_t::eEast },
+    { "bottom", direction_t::eSouth },
+    {   "left",  direction_t::eWest }
+  };
+
+  for (auto &[direction_keyword, direction] : adjacent_map) {
+
+    Janet parameter_value = janet_table_rawget(parameters, janet_ckeywordv(direction_keyword));
+    if (janet_type(parameter_value) == JANET_KEYWORD) {
+      const char *output_name = (const char *)janet_unwrap_keyword(parameter_value);
+
+      if (auto output_ptr = compositor.registry_.output->by_name(output_name)) {
+        output->set_adjacent(direction, &*output_ptr);
+      }
+    }
+  }
   return janet_wrap_true();
 }
 

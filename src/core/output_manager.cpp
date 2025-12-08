@@ -23,10 +23,11 @@ output_manager_t::output_manager_t(minidrm::drm::handle_t handle)
     // We do not care for unused connectors (TODO: though we should,
     // atleast keep track of them.)
     if (connector.connection() == DRM_MODE_DISCONNECTED) {
-      TRACE("Skipping connector {} (disconnected)", connector.type());
+      TRACE("Skipping connector {} (disconnected)", connector.name());
       continue;
     }
 
+    INFO("Adopting {}", connector.name());
     crtc_planner_.adopt(connector);
     outputs_.emplace_back(new output_t{ connector, connector.modes()[0] });
   }
@@ -41,7 +42,7 @@ output_manager_t::mode_set() {
   for (auto &output : outputs_) {
     auto mode = output->mode_;
     TRACE("Initializing {} with {}x{} @ {}",
-          output->connector().type(),
+          output->connector().name(),
           mode.width(),
           mode.height(),
           mode.refresh_rate());
@@ -70,7 +71,7 @@ output_manager_t::by_name(const std::string &connector_name) {
   jsl::optional_t<output_t &> value = jsl::nullopt;
 
   auto it = std::find_if(outputs_.begin(), outputs_.end(), [&connector_name](auto &output) {
-    return output->connector().type() == connector_name;
+    return output->connector().name() == connector_name;
   });
 
   if (it != outputs_.end())

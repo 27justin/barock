@@ -147,6 +147,9 @@ namespace barock {
     jsl::optional_t<output_t &>
     adjacent(direction_t direction);
 
+    void
+    set_adjacent(direction_t, output_t *);
+
     /**
      * @brief Get the renderer associated with this display.  Throws
      * an exception, if this output has no renderer associated.

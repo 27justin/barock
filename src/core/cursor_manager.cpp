@@ -84,7 +84,11 @@ cursor_manager_t::cursor_manager_t(service_registry_t &registry)
   registry.input->on_mouse_move.connect(
     std::bind(&cursor_manager_t::on_mouse_move, this, std::placeholders::_1));
 
-  texture_ = XcursorLibraryLoadImage("left_ptr", nullptr, 32);
+  // TODO: `XcursorLibraryLoadImage' may fail and return nullptr, it
+  // may also fail loading the default cursor ("left_ptr", nullptr),
+  // in which case we have no fallback (?) to use.
+  texture_ = XcursorLibraryLoadImage("left_ptr", "Adwaita", 32);
+  assert(std::get<XcursorImage *>(texture_) != nullptr);
 
   registry_.output->events.on_mode_set.connect([this] {
     set_output(registry_.output->outputs()[0].get());
@@ -124,8 +128,9 @@ cursor_manager_t::set_output(output_t *output) {
     output_->events.on_repaint[CURSOR_PAINT_LAYER].disconnect(paint_token_.value());
 
   if (output != nullptr) {
-    output_ = output;
-    output_->events.on_repaint[CURSOR_PAINT_LAYER].connect(
+    // Update our output variable
+    output_      = output;
+    paint_token_ = output_->events.on_repaint[CURSOR_PAINT_LAYER].connect(
       std::bind(&cursor_manager_t::paint, this, std::placeholders::_1));
   }
 }
@@ -133,11 +138,40 @@ cursor_manager_t::set_output(output_t *output) {
 bool
 cursor_manager_t::transfer(const direction_t &direction) {
   auto adjacent = output_->adjacent(direction);
-  if (adjacent) {
-    set_output(&adjacent.value());
-    return true;
+  if (!adjacent) {
+    return false;
   }
-  return false;
+
+  auto old_output   = output_;
+  auto old_position = position_;
+
+  // Transferring the cursor between outputs also means warping the
+  // cursor position, depending on the resolution of the new screen.
+  fpoint_t scale_factor{
+    static_cast<float>(adjacent->mode().width()) / static_cast<float>(old_output->mode().width()),
+    static_cast<float>(adjacent->mode().height()) / static_cast<float>(old_output->mode().height())
+  };
+
+  fpoint_t scaled_position{ old_position.x * scale_factor.x, old_position.y * scale_factor.y };
+
+  set_output(&adjacent.value());
+  position_ = scaled_position;
+
+  if (direction == direction_t::eNorth) {
+    // Top edge of the new output
+    position_.y = adjacent->mode().height() - 1;
+  } else if (direction == direction_t::eEast) {
+    // Left edge of the new output
+    position_.x = 0.f;
+  } else if (direction == direction_t::eSouth) {
+    // Bottom edge of the new output
+    position_.y = 0.f;
+  } else if (direction == direction_t::eWest) {
+    // Right edge of the new output
+    position_.x = adjacent->mode().width() - 1;
+  }
+
+  return true;
 }
 
 output_t &
@@ -251,7 +285,8 @@ cursor_manager_t::on_mouse_move(mouse_event_t move) {
     transfer_direction |= direction_t::eNorth;
 
   if (transfer_direction != direction_t::eNone) {
-    // Figure out the output that is in the transfer direction
+    // Transfer onto that monitor, `transfer' takes care of cursor
+    // warping.
     bool transferred = this->transfer(transfer_direction);
 
     if (!transferred) {

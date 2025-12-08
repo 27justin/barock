@@ -26,7 +26,7 @@ namespace barock {
       janet_table_put(table, janet_ckeywordv("title"), janet_cstringv(window.title.c_str()));
       janet_table_put(table,
                       janet_ckeywordv("output"),
-                      janet_ckeywordv(surface->output->connector().type().c_str()));
+                      janet_ckeywordv(surface->output->connector().name().c_str()));
       janet_table_put(table, janet_ckeywordv("type"), janet_ckeywordv("xdg-toplevel"));
 
       Janet *position = janet_tuple_begin(2);

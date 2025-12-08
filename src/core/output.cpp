@@ -20,8 +20,10 @@ mode_set_allocator_t::adopt(const minidrm::drm::connector_t &connector) {
     std::unique_ptr<drmModeEncoder, decltype(&drmModeFreeEncoder)> encoder(
       drmModeGetEncoder(handle_.fd, connector->encoders[i]), drmModeFreeEncoder);
 
-    if (!encoder)
+    if (!encoder) {
+      ERROR("Failed to retrieve DRM encoder information about connector {}", connector.name());
       continue;
+    }
 
     auto crtcs = handle_.crtcs();
     for (int i = 0; i < crtcs.size(); ++i) {
@@ -35,7 +37,9 @@ mode_set_allocator_t::adopt(const minidrm::drm::connector_t &connector) {
         continue;
 
       taken_ |= bit;
-      plan_.emplace(connector.type(), i);
+      plan_.emplace(connector.name(), i);
+      // CRTC found; now we can directly exit
+      return;
     }
   }
 }
@@ -43,11 +47,11 @@ mode_set_allocator_t::adopt(const minidrm::drm::connector_t &connector) {
 minidrm::framebuffer::egl_t
 mode_set_allocator_t::mode_set(const minidrm::drm::connector_t &connector,
                                const minidrm::drm::mode_t      &mode) {
-  if (!plan_.contains(connector.type()))
+  if (!plan_.contains(connector.name()))
     throw std::runtime_error("Tried to `mode_set` a connector that wasn't adopted before!");
 
   auto crtcs = handle_.crtcs();
-  auto crtc  = crtcs[plan_[connector.type()]];
+  auto crtc  = crtcs[plan_[connector.name()]];
 
   auto handle = minidrm::framebuffer::egl_t(handle_, connector, crtc, mode, 2);
   handle.mode_set();
@@ -157,6 +161,31 @@ output_t::adjacent(direction_t direction) {
     return jsl::nullopt;
 
   return *result;
+}
+
+void
+output_t::set_adjacent(direction_t direction, output_t *output) {
+  switch (direction) {
+    case direction_t::eNorth:
+      top_            = output;
+      output->bottom_ = this;
+      break;
+    case direction_t::eEast:
+      right_        = output;
+      output->left_ = this;
+      break;
+    case direction_t::eSouth:
+      bottom_      = output;
+      output->top_ = this;
+      break;
+    case direction_t::eWest:
+      left_          = output;
+      output->right_ = this;
+      break;
+    default:
+      CRITICAL("Tried to set adjacent output on {}, with invalid direction enum "
+               "value. Do not use composed cardinal directions, use eEast, eNorth, etc.");
+  }
 }
 
 bool

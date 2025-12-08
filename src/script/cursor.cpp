@@ -4,6 +4,7 @@
 #include "barock/core/cursor_manager.hpp"
 #include "barock/core/input.hpp"
 #include "barock/core/signal.hpp"
+#include "barock/script/interop.hpp"
 #include "barock/script/janet.hpp"
 #include "barock/singleton.hpp"
 
@@ -60,20 +61,22 @@ dispatch_mouse_move(mouse_event_t ev) {
   auto  tuple = janet_tuple_begin(2);
   float dx    = libinput_event_pointer_get_dx(ev.pointer);
   float dy    = libinput_event_pointer_get_dy(ev.pointer);
-  tuple[0]    = janet_wrap_number(dx * 0.1);
-  tuple[1]    = janet_wrap_number(dy * 0.1);
 
-  Janet       args  = janet_wrap_tuple(janet_tuple_end(tuple));
-  JanetArray *array = janet_unwrap_array(value);
-  // TRACE("handlers: {}", array->count);
-  for (int32_t i = 0; i < array->count; ++i) {
-    assert(janet_type(array->data[i]) == JANET_FUNCTION);
+  dispatch_event_hook(compositor.context_, "mouse-move-hook", fpoint_t{ dx, dy });
 
-    JanetFunction *cb    = janet_unwrap_function(array->data[i]);
-    JanetFiber    *fiber = janet_fiber(cb, 1, 1, &args);
-    Janet          value;
-    janet_continue(fiber, janet_wrap_nil(), &value);
-  }
+  // tuple[0]    = janet_wrap_number(dx * 0.1);
+  // tuple[1]    = janet_wrap_number(dy * 0.1);
+
+  // Janet       args  = janet_wrap_tuple(janet_tuple_end(tuple));
+  // JanetArray *array = janet_unwrap_array(value);
+  // for (int32_t i = 0; i < array->count; ++i) {
+  //   assert(janet_type(array->data[i]) == JANET_FUNCTION);
+
+  //   JanetFunction *cb    = janet_unwrap_function(array->data[i]);
+  //   JanetFiber    *fiber = janet_fiber(cb, 1, 1, &args);
+  //   Janet          value;
+  //   janet_continue(fiber, janet_wrap_nil(), &value);
+  // }
   return signal_action_t::eOk;
 }
 
@@ -153,6 +156,12 @@ JANET_CFUN(cfun_key_held) {
   return janet_wrap_false();
 }
 
+JANET_CFUN(cfun_current_output) {
+  janet_fixarity(argc, 0);
+  auto &compositor = singleton_t<compositor_t>::get();
+  return janet_converter_t<output_t>{}(compositor.registry_.cursor->current_output());
+}
+
 void
 janet_module_t<cursor_manager_t>::import(JanetTable *env) {
   constexpr static JanetReg output_manager_fns[] = {
@@ -165,6 +174,9 @@ janet_module_t<cursor_manager_t>::import(JanetTable *env) {
     {           "input/key-held",
      cfun_key_held,         "(input/key-held key-string)\n\nReturns true, or false, whether or not the `key-string' is "
          "held.\n`key-string' must be a resolvable keysym."                            },
+    {     "input/current-output",
+     cfun_current_output,                                            "(input/current-output)\n\nReturn the output table the cursor is"
+                                            "currently on."                      },
     {                    nullptr, nullptr,                                                         nullptr }
   };
   janet_cfuns(env, "barock", output_manager_fns);
