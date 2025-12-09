@@ -68,7 +68,7 @@ namespace barock {
 
   template<typename... Args>
   int
-  dispatch_event_hook(JanetTable *env, const std::string &symbol, Args &&...args) {
+  dispatch_hook(JanetTable *env, const std::string &symbol, Args &&...args) {
     Janet list;
     janet_resolve(env, janet_csymbol(symbol.c_str()), &list);
 

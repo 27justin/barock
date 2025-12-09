@@ -34,6 +34,10 @@ namespace barock {
       janet_table_put(
         table, janet_ckeywordv("refresh-rate"), janet_wrap_number(output.mode().refresh_rate()));
 
+      std::string connector_name = output.connector().name();
+      janet_table_put(
+        table, janet_ckeywordv("name"), janet_wrap_keyword(janet_cstring(connector_name.c_str())));
+
       auto pan = janet_tuple_begin(2);
       pan[0]   = janet_wrap_number(output.pan().x);
       pan[1]   = janet_wrap_number(output.pan().y);
@@ -198,6 +202,7 @@ JANET_CFUN(cfun_output_get) {
   auto &compositor = singleton_t<compositor_t>::get();
   auto  output     = compositor.registry_.output->by_name((const char *)connector_name);
   if (output.valid() == false) {
+    ERROR("(output/get) No connector named {} found!", (const char *)connector_name);
     return janet_wrap_nil();
   }
 
@@ -225,6 +230,7 @@ JANET_CFUN(cfun_output_pan) {
   auto animation = janet_optboolean(argv, argc, 2, true);
 
   output.value().pan(fpoint_t{ static_cast<float>(x), static_cast<float>(y) }, animation == 0);
+
   return janet_wrap_true();
 }
 

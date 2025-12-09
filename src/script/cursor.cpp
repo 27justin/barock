@@ -62,29 +62,13 @@ dispatch_mouse_move(mouse_event_t ev) {
   float dx    = libinput_event_pointer_get_dx(ev.pointer);
   float dy    = libinput_event_pointer_get_dy(ev.pointer);
 
-  dispatch_event_hook(compositor.context_, "mouse-move-hook", fpoint_t{ dx, dy });
-
-  // tuple[0]    = janet_wrap_number(dx * 0.1);
-  // tuple[1]    = janet_wrap_number(dy * 0.1);
-
-  // Janet       args  = janet_wrap_tuple(janet_tuple_end(tuple));
-  // JanetArray *array = janet_unwrap_array(value);
-  // for (int32_t i = 0; i < array->count; ++i) {
-  //   assert(janet_type(array->data[i]) == JANET_FUNCTION);
-
-  //   JanetFunction *cb    = janet_unwrap_function(array->data[i]);
-  //   JanetFiber    *fiber = janet_fiber(cb, 1, 1, &args);
-  //   Janet          value;
-  //   janet_continue(fiber, janet_wrap_nil(), &value);
-  // }
+  dispatch_hook(compositor.context_, "mouse-move-hook", fpoint_t{ dx * 0.1f, dy * 0.1f });
   return signal_action_t::eOk;
 }
 
 signal_action_t
 dispatch_mouse_click(mouse_button_t ev) {
   auto &compositor = singleton_t<compositor_t>::get();
-  // TRACE("(janet module cursor_manager_t) Dispatching `mouse-button-hook'");
-
   Janet value;
   janet_resolve(compositor.context_, janet_csymbol("mouse-button-hook"), &value);
 
