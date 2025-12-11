@@ -55,7 +55,7 @@ namespace barock {
     template<typename _PTy>
     bool
     operator>=(const point_t<_PTy> &other) const {
-      return (*this > other) || (*this == other);
+      return x >= other.x && y >= other.y;
     }
 
     template<typename _PTy>
@@ -67,7 +67,7 @@ namespace barock {
     template<typename _PTy>
     bool
     operator<=(const point_t<_PTy> &other) const {
-      return (*this < other) || (*this == other);
+      return x <= other.x && y <= other.y;
     }
 
     template<typename _PTy>
@@ -91,6 +91,11 @@ namespace barock {
     point_t<_Ty>
     operator*(_Ty scalar) const {
       return point_t<_Ty>{ x * scalar, y * scalar };
+    }
+
+    point_t<_Ty>
+    operator/(_Ty scalar) const {
+      return point_t<_Ty>{ x / scalar, y / scalar };
     }
   };
 

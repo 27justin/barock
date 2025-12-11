@@ -698,7 +698,6 @@ namespace minidrm::framebuffer {
     if (!eglMakeCurrent(drm->egl.display, egl_surface, egl_surface, drm->egl.context)) {
       throw std::runtime_error("Failed to eglMakeCurrent");
     }
-    // Note: we do *not* release the BO yet — it’s still needed for display
     return egl_buffer_t{ .bo = nullptr, .fb = 0 };
   }
 

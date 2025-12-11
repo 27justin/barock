@@ -19,6 +19,7 @@ namespace barock {
   struct compositor_t;
   struct shm_buffer_t;
   struct subsurface_t;
+  struct output_t;
 
   struct base_surface_role_t {
     base_surface_role_t()          = default;
@@ -81,7 +82,8 @@ namespace barock {
     shared_t<base_surface_role_t> role;
 
     struct {
-      signal_t<shm_buffer_t &> on_buffer_attach;
+      signal_t<shm_buffer_t &>                on_buffer_attach;
+      signal_t<const region_t &, surface_t &> on_damage;
     } events;
 
     metadata_t metadata;

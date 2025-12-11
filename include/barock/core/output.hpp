@@ -1,7 +1,10 @@
 #pragma once
 
+#include <atomic>
+#include <condition_variable>
 #include <cstdint>
 #include <memory>
+#include <mutex>
 #include <vector>
 
 #include "barock/core/animation.hpp"
@@ -80,8 +83,12 @@ namespace barock {
     private:
     friend class output_manager_t;
 
-    // quad_tree_t damage_;
-    bool dirty_;
+    mutable quad_tree_t<int, void *>
+      damage_; ///< Damage tracking on this output, note that this tree is in screenspace
+               ///< coordinates, not workspace!
+    mutable std::mutex              dirty_;
+    mutable std::condition_variable dirty_cv_;
+    mutable std::atomic_bool        force_render_;
     // mat4x4 transform;
 
     animation_t<fpoint_t> pan_;  ///< Pan
@@ -114,6 +121,26 @@ namespace barock {
 
     const minidrm::drm::mode_t &
     mode() const;
+
+    std::mutex &
+    dirty() const;
+
+    std::condition_variable &
+    dirty_cv() const;
+
+    void
+    force_render() const;
+
+    ///! Track some damage on this output
+    void
+    damage(const region_t &region) const;
+
+    ///! Return whether a point on the output is currently damanged, and thus should be re-rendered.
+    bool
+    damaged(const ipoint_t &) const;
+
+    bool
+    damaged(const region_t &) const;
 
     /**
      * @brief Convert a point from one coordinate system, into another.

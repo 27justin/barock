@@ -47,8 +47,22 @@ output_manager_t::mode_set() {
           mode.height(),
           mode.refresh_rate());
     output->renderer(gl_renderer_t{ mode, crtc_planner_.mode_set(output->connector_, mode) });
+    events.on_mode_set.emit(*output);
   }
-  events.on_mode_set.emit();
+}
+
+void
+output_manager_t::mode_set(output_t &output) {
+  TRACE("Mode setting {} with {}x{} @ {} Hz",
+        output.connector().name(),
+        output.mode().width(),
+        output.mode().height(),
+        output.mode().refresh_rate());
+  output.renderer(
+    gl_renderer_t{ output.mode(), crtc_planner_.mode_set(output.connector(), output.mode()) });
+
+  // TODO: Refactor this event to include the output.
+  events.on_mode_set.emit(output);
 }
 
 const std::vector<shared_t<output_t>> &

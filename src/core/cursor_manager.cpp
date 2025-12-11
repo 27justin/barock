@@ -90,8 +90,8 @@ cursor_manager_t::cursor_manager_t(service_registry_t &registry)
   texture_ = XcursorLibraryLoadImage("left_ptr", "Adwaita", 32);
   assert(std::get<XcursorImage *>(texture_) != nullptr);
 
-  registry_.output->events.on_mode_set.connect([this] {
-    set_output(registry_.output->outputs()[0].get());
+  registry_.output->events.on_mode_set.connect([this](output_t &output) {
+    set_output(&output);
     return signal_action_t::eDelete;
   });
 }
@@ -105,6 +105,10 @@ cursor_manager_t::~cursor_manager_t() {
 signal_action_t
 cursor_manager_t::paint(output_t &output) {
   fpoint_t screen = output.to<output_t::eWorkspace, output_t::eScreenspace>(position_);
+
+  if (!output.damaged(position_.to<int>())) {
+    INFO("Skipping rendering cursor, region is not damaged.");
+  }
 
   std::visit(
     [&]<typename T>(T &texture) {
@@ -269,6 +273,12 @@ cursor_manager_t::on_mouse_move(mouse_event_t move) {
     dy = libinput_event_pointer_get_dy(move.pointer);
     position_.x += dx * 0.1;
     position_.y += dy * 0.1;
+    output_->damage(region_t{
+      fpoint_t{
+               output_->to<coordinate_space_t::eWorkspace, coordinate_space_t::eScreenspace>(position_) }
+        .to<int>(),
+      ipoint_t{                                        32,                                           32 }
+    });
   }
 
   direction_t transfer_direction = direction_t::eNone;

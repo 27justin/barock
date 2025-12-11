@@ -23,6 +23,9 @@ namespace barock {
     mode_set();
 
     void
+    mode_set(output_t &);
+
+    void
     configure(output_t &output, minidrm::drm::mode_t);
 
     const std::vector<shared_t<output_t>> &
@@ -35,7 +38,7 @@ namespace barock {
     by_name(const std::string &connector_name);
 
     struct {
-      signal_t<void>       on_mode_set;
+      signal_t<output_t &> on_mode_set;
       signal_t<output_t &> on_output_new;
     } events;
   };

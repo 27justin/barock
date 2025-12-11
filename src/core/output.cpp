@@ -65,8 +65,9 @@ easing(float x) {
 }
 
 output_t::output_t(const minidrm::drm::connector_t &connector, const minidrm::drm::mode_t &mode)
-  : dirty_(false)
-  , pan_({ 0.f, 0.f }, { 0.f, 0.f }, 1.f, easing)
+  : pan_({ 0.f, 0.f }, { 0.f, 0.f }, 1.f, easing)
+  , damage_(ipoint_t{ 0, 0 }, ipoint_t{ (int)mode.width(), (int)mode.height() })
+  , force_render_(true)
   , zoom_(1.f)
   , connector_(connector)
   , mode_(mode)
@@ -86,6 +87,47 @@ output_t::connector() const {
 const minidrm::drm::mode_t &
 output_t::mode() const {
   return mode_;
+}
+
+std::mutex &
+output_t::dirty() const {
+  return dirty_;
+}
+
+std::condition_variable &
+output_t::dirty_cv() const {
+  return dirty_cv_;
+}
+
+void
+output_t::force_render() const {
+  std::lock_guard<std::mutex> guard(dirty_);
+  force_render_.store(true);
+  dirty_cv_.notify_all();
+}
+
+void
+output_t::damage(const region_t &region) const {
+  {
+    std::lock_guard<std::mutex> guard(dirty_);
+    damage_.insert(node_t<int, void *>({ region.x, region.y }, nullptr));
+    damage_.insert(node_t<int, void *>({ region.x + region.w, region.y + region.h }, nullptr));
+  }
+  dirty_cv_.notify_all();
+}
+
+bool
+output_t::damaged(const ipoint_t &point) const {
+  std::lock_guard<std::mutex> guard(dirty_);
+  return force_render_.load() || damage_.query(point, point + ipoint_t{ 1, 1 }).size() > 0;
+}
+
+bool
+output_t::damaged(const region_t &region) const {
+  std::lock_guard<std::mutex> guard(dirty_);
+  return force_render_.load() ||
+         damage_.query({ region.x, region.y }, { region.x + region.w, region.y + region.h })
+             .size() > 0;
 }
 
 renderer_t &
@@ -224,4 +266,6 @@ output_t::paint() {
 
   uint32_t end = current_time_msec();
   pan_.update((end - start) / 1000.f);
+
+  damage_.clear();
 }

@@ -74,6 +74,15 @@ namespace barock {
           continue;
         }
 
+        // Check if we have damage
+        if (output.damaged(region_t{
+              output.to<output_t::eWorkspace, output_t::eScreenspace>(xdg_surface->position),
+              xdg_surface->size }) == false) {
+          // No damage, means we skip it.
+          WARN("Window not within any damage region, skipping...");
+          continue;
+        }
+
         auto position = output.to<output_t::eWorkspace, output_t::eScreenspace>(
           xdg_surface->position - xdg_surface->offset);
 
@@ -141,7 +150,7 @@ namespace barock {
   }
 
   shared_t<resource_t<xdg_surface_t>>
-  xdg_shell_t::by_position(output_t &output, const fpoint_t &position) {
+  xdg_shell_t::by_position(output_t &output, const fpoint_t &position) const {
     auto &windows = output.metadata.get<xdg_window_list_t>();
 
     for (auto it = windows.begin(); it != windows.end(); ++it) {
@@ -244,6 +253,35 @@ xdg_wm_base_get_xdg_surface(wl_client   *client,
                                                   id,
                                                   *shell,
                                                   surface);
+
+  surface->events.on_damage.connect([shell](auto &region, auto &surface) {
+    // Add the damage to our output
+    jsl::optional_t<const output_t &> output;
+    auto                             &root     = surface.root();
+    auto                              position = surface.position();
+
+    // Find the root toplevel window
+    for (auto const &current_output : shell->registry.output->outputs()) {
+      auto &windows = current_output->metadata.get<xdg_window_list_t>();
+
+      auto it = std::find_if(windows.begin(), windows.end(), [&surface](auto &toplevel) {
+        return shared_cast<surface_t>(toplevel->surface.lock()).get() == &surface;
+      });
+
+      if (it != windows.end()) {
+        output.emplace(*current_output);
+        position += (*it)->position + (*it)->offset;
+      }
+    }
+
+    if (output.valid() == true) {
+      output->damage(region_t{ (int)position.x, (int)position.y, region.w, region.h });
+      TRACE("Added damage onto output {}", output->connector().name());
+    } else {
+      ERROR("Got damage event on surface that isn't being displayed on any output.");
+    }
+    return signal_action_t::eOk;
+  });
 
   surface->role = xdg_surface;
 

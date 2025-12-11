@@ -146,8 +146,7 @@ wl_surface_damage(wl_client   *client,
                   int32_t      width,
                   int32_t      height) {
   auto surface = from_wl_resource<surface_t>(wl_surface);
-  // surface->staging.damage += barock::region_t{ x, y, width, height };
-  // WARN("Legacy damage, skipping this");
+  surface->events.on_damage.emit(region_t{ x, y, width, height }, *surface);
 }
 
 void
@@ -165,6 +164,8 @@ wl_surface_damage_buffer(wl_client   *client,
   else
     surface->staging.damage =
       surface->staging.damage->union_with(barock::region_t{ x, y, width, height });
+
+  surface->events.on_damage.emit(region_t{ x, y, width, height }, *surface);
 }
 
 void

@@ -4,6 +4,8 @@ set (CMAKE_CXX_STANDARD 23)
 
 include(FindPkgConfig)
 
+option(BAROCK_TEST "Build unit tests" OFF)
+
 add_executable(barock)
 target_compile_options(barock PRIVATE "-fdiagnostics-color")
 target_compile_options(barock PRIVATE "-std=c++23")
@@ -14,14 +16,10 @@ target_compile_options(barock PRIVATE "-Werror=implicit-fallthrough")
 target_link_options(barock PRIVATE "-fsanitize=address")
 target_link_libraries(barock PUBLIC m)
 
-# libconfig
-target_link_libraries(barock PUBLIC config++)
-
 set(barock_SOURCES
   src/main.cpp
   src/compositor.cpp
   src/log.cpp
-
 
   # rendering
   src/fbo.cpp
@@ -29,8 +27,6 @@ set(barock_SOURCES
   # util
   src/util.cpp
 
-
-  src/core/config.cpp
   src/core/event_loop.cpp
 
   # render backends
@@ -76,8 +72,7 @@ set(barock_SOURCES
   # xdg shell
   src/shell/xdg_wm_base.cpp
   src/shell/xdg_surface.cpp
-  src/shell/xdg_toplevel.cpp
-  )
+  src/shell/xdg_toplevel.cpp)
 
 target_include_directories(barock PUBLIC "include/")
 
@@ -120,4 +115,33 @@ target_link_libraries(barock PRIVATE udev)
 
 target_sources(barock PRIVATE third_party/janet/janet.c)
 target_include_directories(barock PRIVATE third_party/janet/include/)
+
+
+# Tests
+if (${BAROCK_TEST})
+  include(FetchContent)
+  FetchContent_Declare(
+    googletest
+    URL https://github.com/google/googletest/archive/03597a01ee50ed33e9dfd640b249b4be3799d395.zip
+  )
+  # For Windows: Prevent overriding the parent project's compiler/linker settings
+  set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+  FetchContent_MakeAvailable(googletest)
+
+  enable_testing()
+
+  add_executable(
+    barock_test
+    test/quad_tree.cpp
+  )
+  target_compile_options(barock_test PRIVATE "-fdiagnostics-color")
+  target_include_directories(barock_test PUBLIC "include/")
+  target_link_libraries(
+    barock_test
+    GTest::gtest_main)
+
+  include(GoogleTest)
+  gtest_discover_tests(barock_test)
+
+endif()
 

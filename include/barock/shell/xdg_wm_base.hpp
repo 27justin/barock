@@ -90,7 +90,7 @@ namespace barock {
      * NOTE: `position' has to be in workspace local coordinates.
      */
     shared_t<resource_t<xdg_surface_t>>
-    by_position(output_t &, const fpoint_t &);
+    by_position(output_t &, const fpoint_t &) const;
 
     shared_t<xdg_toplevel_t>
       by_app_id(std::string_view, jsl::optional_t<const output_t &> = jsl::nullopt) const;

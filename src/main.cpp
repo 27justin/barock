@@ -1,6 +1,7 @@
 #include <GLES2/gl2.h>
 #include <GLES2/gl2ext.h>
 #include <cassert>
+#include <condition_variable>
 #include <iostream>
 #include <libudev.h>
 #include <linux/kd.h>
@@ -77,18 +78,31 @@ main() {
   auto compositor = compositor_t(hdl, getenv("XDG_SEAT"));
   compositor.load_file("config.janet");
 
-  // Perform the mode set, after this we can initialize EGL
-  compositor.registry_.output->mode_set();
+  wl_display    *display = compositor.display();
+  wl_event_loop *loop    = wl_display_get_event_loop(display);
 
-  wl_display    *display  = compositor.display();
-  wl_event_loop *loop     = wl_display_get_event_loop(display);
-  static int     throttle = 0;
+  for (auto &output : compositor.registry_.output->outputs()) {
+    std::thread([&] {
+      std::condition_variable     &cv = output->dirty_cv();
+      std::unique_lock<std::mutex> lock(output->dirty());
+
+      // Perform the mode set on this thread, EGL is a thread local
+      // state machine, we have to mode set on the thread that will
+      // also render to the output.
+      compositor.registry_.output->mode_set(*output);
+
+      for (;;) {
+        cv.wait(lock);
+        // Whenever we wake up, we re-render.  The subscribers of
+        // `output_t::on_repaint` are responsible for adhering to the
+        // damage tree, we just submit.
+        output->paint();
+      }
+    }).detach();
+  }
 
   while (1) {
-    wl_event_loop_dispatch(loop, 0); // 0 = non-blocking, -1 = blocking
-    for (auto &screen : compositor.registry_.output->outputs()) {
-      screen->paint();
-    }
+    wl_event_loop_dispatch(loop, -1); // 0 = non-blocking, -1 = blocking
     wl_display_flush_clients(compositor.display());
   }
 

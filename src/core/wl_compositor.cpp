@@ -44,7 +44,7 @@ void
 wl_compositor_create_surface(wl_client *client, wl_resource *wl_compositor, uint32_t id) {
   auto *compositor = static_cast<wl_compositor_t *>(wl_resource_get_user_data(wl_compositor));
 
-  make_resource<surface_t>(
+  auto surface = make_resource<surface_t>(
     client, wl_surface_interface, wl_surface_impl, wl_resource_get_version(wl_compositor), id);
 }
 
