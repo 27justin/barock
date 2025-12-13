@@ -183,7 +183,8 @@ wl_surface_commit(wl_client *client, wl_resource *wl_surface) {
   }
 
   surface->staging = barock::surface_state_t{ // By default, our surface has no pending damage.
-                                              .damage = std::nullopt,
+                                              .damage  = std::nullopt,
+                                              .pending = nullptr,
 
                                               // Copy our subsurfaces, those are persistent
                                               .subsurface = surface->state.subsurface,
