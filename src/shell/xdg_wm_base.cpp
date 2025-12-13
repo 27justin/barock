@@ -75,13 +75,18 @@ namespace barock {
         }
 
         // Check if we have damage
-        if (output.damaged(region_t{
-              output.to<output_t::eWorkspace, output_t::eScreenspace>(xdg_surface->position),
-              xdg_surface->size }) == false) {
-          // No damage, means we skip it.
-          WARN("Window not within any damage region, skipping...");
-          continue;
-        }
+        //
+        // TODO: This requires clipping, we do not have that yet and
+        // have to re-render everything whenever `on_repaint' is
+        // emitted.
+
+        // if (output.damaged(region_t{
+        //       output.to<output_t::eWorkspace, output_t::eScreenspace>(xdg_surface->position),
+        //       xdg_surface->size }) == false) {
+        //   // No damage, means we skip it.
+        //   WARN("Window not within any damage region, skipping...");
+        //   continue;
+        // }
 
         auto position = output.to<output_t::eWorkspace, output_t::eScreenspace>(
           xdg_surface->position - xdg_surface->offset);

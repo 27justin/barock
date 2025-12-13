@@ -89,19 +89,19 @@ output_t::mode() const {
   return mode_;
 }
 
-std::mutex &
+std::recursive_mutex &
 output_t::dirty() const {
   return dirty_;
 }
 
-std::condition_variable &
+std::condition_variable_any &
 output_t::dirty_cv() const {
   return dirty_cv_;
 }
 
 void
 output_t::force_render() const {
-  std::lock_guard<std::mutex> guard(dirty_);
+  std::lock_guard<std::recursive_mutex> guard(dirty_);
   force_render_.store(true);
   dirty_cv_.notify_all();
 }
@@ -109,7 +109,7 @@ output_t::force_render() const {
 void
 output_t::damage(const region_t &region) const {
   {
-    std::lock_guard<std::mutex> guard(dirty_);
+    std::lock_guard<std::recursive_mutex> guard(dirty_);
     damage_.insert(node_t<int, void *>({ region.x, region.y }, nullptr));
     damage_.insert(node_t<int, void *>({ region.x + region.w, region.y + region.h }, nullptr));
   }
@@ -118,13 +118,13 @@ output_t::damage(const region_t &region) const {
 
 bool
 output_t::damaged(const ipoint_t &point) const {
-  std::lock_guard<std::mutex> guard(dirty_);
+  std::lock_guard<std::recursive_mutex> guard(dirty_);
   return force_render_.load() || damage_.query(point, point + ipoint_t{ 1, 1 }).size() > 0;
 }
 
 bool
 output_t::damaged(const region_t &region) const {
-  std::lock_guard<std::mutex> guard(dirty_);
+  std::lock_guard<std::recursive_mutex> guard(dirty_);
   return force_render_.load() ||
          damage_.query({ region.x, region.y }, { region.x + region.w, region.y + region.h })
              .size() > 0;
@@ -267,5 +267,6 @@ output_t::paint() {
   uint32_t end = current_time_msec();
   pan_.update((end - start) / 1000.f);
 
+  force_render_.store(false);
   damage_.clear();
 }

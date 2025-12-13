@@ -82,9 +82,10 @@ main() {
   wl_event_loop *loop    = wl_display_get_event_loop(display);
 
   for (auto &output : compositor.registry_.output->outputs()) {
+    INFO("Starting rendering thread for output {}", output->connector().name());
     std::thread([&] {
-      std::condition_variable     &cv = output->dirty_cv();
-      std::unique_lock<std::mutex> lock(output->dirty());
+      std::condition_variable_any           &cv = output->dirty_cv();
+      std::unique_lock<std::recursive_mutex> lock(output->dirty());
 
       // Perform the mode set on this thread, EGL is a thread local
       // state machine, we have to mode set on the thread that will

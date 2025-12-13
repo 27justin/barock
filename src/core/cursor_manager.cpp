@@ -106,9 +106,12 @@ signal_action_t
 cursor_manager_t::paint(output_t &output) {
   fpoint_t screen = output.to<output_t::eWorkspace, output_t::eScreenspace>(position_);
 
-  if (!output.damaged(position_.to<int>())) {
-    INFO("Skipping rendering cursor, region is not damaged.");
-  }
+  // TODO: Damage tracking is implemented, but we can't draw partial
+  // regions yet.
+  //
+  // if (!output.damaged(position_.to<int>())) {
+  //   INFO("Skipping rendering cursor, region is not damaged.");
+  // }
 
   std::visit(
     [&]<typename T>(T &texture) {

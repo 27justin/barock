@@ -86,9 +86,9 @@ namespace barock {
     mutable quad_tree_t<int, void *>
       damage_; ///< Damage tracking on this output, note that this tree is in screenspace
                ///< coordinates, not workspace!
-    mutable std::mutex              dirty_;
-    mutable std::condition_variable dirty_cv_;
-    mutable std::atomic_bool        force_render_;
+    mutable std::recursive_mutex        dirty_;
+    mutable std::condition_variable_any dirty_cv_;
+    mutable std::atomic_bool            force_render_;
     // mat4x4 transform;
 
     animation_t<fpoint_t> pan_;  ///< Pan
@@ -122,10 +122,10 @@ namespace barock {
     const minidrm::drm::mode_t &
     mode() const;
 
-    std::mutex &
+    std::recursive_mutex &
     dirty() const;
 
-    std::condition_variable &
+    std::condition_variable_any &
     dirty_cv() const;
 
     void

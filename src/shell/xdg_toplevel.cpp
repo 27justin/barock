@@ -116,8 +116,11 @@ xdg_toplevel_set_fullscreen(wl_client *client, wl_resource *wl_xdg_toplevel, wl_
 void
 xdg_toplevel_unset_fullscreen(wl_client *client, wl_resource *wl_xdg_toplevel);
 
+void
+xdg_toplevel_set_parent(wl_client *client, wl_resource *wl_xdg_toplevel, wl_resource *wl_parent);
+
 struct xdg_toplevel_interface xdg_toplevel_impl = { .destroy    = xdg_toplevel_destroy,
-                                                    .set_parent = nullptr,
+                                                    .set_parent = xdg_toplevel_set_parent,
                                                     .set_title  = xdg_toplevel_set_title,
                                                     .set_app_id = xdg_toplevel_set_app_id,
                                                     .show_window_menu =
@@ -132,6 +135,9 @@ struct xdg_toplevel_interface xdg_toplevel_impl = { .destroy    = xdg_toplevel_d
                                                     .unset_fullscreen =
                                                       xdg_toplevel_unset_fullscreen,
                                                     .set_minimized = xdg_toplevel_set_minimized };
+
+void
+xdg_toplevel_set_parent(wl_client *client, wl_resource *wl_xdg_toplevel, wl_resource *wl_parent) {}
 
 void
 xdg_toplevel_move(wl_client   *client,
