@@ -37,7 +37,7 @@ namespace barock {
     // Attach on_buffer_attach listener to resize the window & send
     // the new toplevel event.
     //
-    // TODO: This crashes, if the xdg_toplevel is freed, but the
+    // TODO: This crashes if the xdg_toplevel is freed, but the
     // surface stays alive and gets repurposed, then once the new
     // use-case for the surface attaches a buffer, the event will be
     // called, even though `this` was already invalidated.
@@ -77,18 +77,18 @@ xdg_toplevel_set_max_size(wl_client   *client,
                           wl_resource *xdg_toplevel,
                           int32_t      width,
                           int32_t      height) {
-  INFO("set max size: {}x{}", width, height);
+  // INFO("set max size: {}x{}", width, height);
   auto surface = from_wl_resource<xdg_toplevel_t>(xdg_toplevel);
-};
+}
 
 void
 xdg_toplevel_set_min_size(wl_client   *client,
                           wl_resource *xdg_toplevel,
                           int32_t      width,
                           int32_t      height) {
-  INFO("set min size: {}x{}", width, height);
+  // INFO("set min size: {}x{}", width, height);
   auto surface = from_wl_resource<xdg_toplevel_t>(xdg_toplevel);
-};
+}
 
 void
 xdg_toplevel_destroy(wl_client *client, wl_resource *wl_xdg_toplevel);
@@ -294,55 +294,50 @@ xdg_toplevel_resize(wl_client   *client,
       new_w = std::max(1, new_w);
       new_h = std::max(1, new_h);
 
+      if (new_w == xdg_surface->size.x && new_h == xdg_surface->size.y)
+        return signal_action_t::eOk;
+
       xdg_surface->position.x = new_x;
       xdg_surface->position.y = new_y;
-      xdg_surface->size.x     = new_w;
-      xdg_surface->size.y     = new_h;
 
-      // Send configure event
-      wl_array state;
-      wl_array_init(&state);
-      *reinterpret_cast<xdg_toplevel_state *>(wl_array_add(&state, sizeof(xdg_toplevel_state))) =
-        XDG_TOPLEVEL_STATE_RESIZING;
-      xdg_toplevel_send_configure(wl_xdg_toplevel, new_w, new_h, &state);
-      wl_array_release(&state);
-
-      // Required: otherwise the client won't actually resize
+      // Store the new size in the `pending' member of the
+      // `xdg_surface_t', we send the configure when the user stops
+      // the resize operation.
       //
-      // ... This configure event asks the client to resize its
-      // toplevel surface or to change its state. The configured state
-      // should not be applied immediately. See xdg_surface.configure
-      // for details.
-      xdg_surface_send_configure(
-        xdg_surface->resource(),
-        wl_display_next_serial(singleton_t<compositor_t>::get().display()));
+      // Live-resize (i.e. directly forwarding the `configure' events
+      // here) doesn't work quite reliable, and consumes a lot of
+      // resources, since the client has to request potentially
+      // hundreds of new wl_buffers per second.
+      xdg_surface->pending.size.x = new_w;
+      xdg_surface->pending.size.y = new_h;
       return signal_action_t::eOk;
     });
 
-  // state->on_mouse_button = compositor->input->on_mouse_button.connect(
-  //   [compositor, state, toplevel, wl_surface, xdg_surface](const auto &event) mutable {
-  //     if (event.button == BTN_LEFT && event.state == 0) {
-  //       state->active.store(false);
+  state->on_mouse_button = input_manager->on_mouse_click.connect(
+    [&cursor_manager, &input_manager, wl_surface, toplevel, wl_xdg_toplevel, state, xdg_surface](
+      const auto &event) mutable {
+      if (event.button == BTN_LEFT && event.state == 0) {
+        state->active.store(false);
 
-  //       wl_array state;
-  //       wl_array_init(&state);
-  //       xdg_toplevel_send_configure(
-  //         toplevel->resource(), toplevel->data.width, toplevel->data.height, &state);
-  //       wl_array_release(&state);
+        wl_array wl_state;
+        // Send final empty configure event.
+        wl_array_init(&wl_state);
+        xdg_toplevel_send_configure(toplevel->resource(),
+                                    xdg_surface->pending.size.x,
+                                    xdg_surface->pending.size.y,
+                                    &wl_state);
+        wl_array_release(&wl_state);
 
-  //       // Send final empty configure event.
-  //       wl_array_init(&state);
-  //       xdg_toplevel_send_configure(
-  //         toplevel->resource(), toplevel->data.width, toplevel->data.height, &state);
-  //       wl_array_release(&state);
+        xdg_surface->pending.serial =
+          wl_display_next_serial(singleton_t<compositor_t>::get().display());
+        xdg_surface_send_configure(xdg_surface->resource(), xdg_surface->pending.serial);
 
-  //       // Refocus the surface
-  //       compositor->pointer.set_focus(wl_surface);
-
-  //       compositor->input->on_mouse_move.disconnect(state->on_mouse_move);
-  //       compositor->input->on_mouse_button.disconnect(state->on_mouse_button);
-  //     }
-  //   });
+        input_manager->on_mouse_move.disconnect(state->on_mouse_move);
+        input_manager->on_mouse_click.disconnect(state->on_mouse_button);
+        return signal_action_t::eDelete;
+      }
+      return signal_action_t::eOk;
+    });
 }
 
 void

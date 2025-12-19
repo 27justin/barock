@@ -2,10 +2,12 @@
 #include "barock/compositor.hpp"
 #include "barock/core/cursor_manager.hpp"
 #include "barock/core/shm_pool.hpp"
+#include "barock/resource.hpp"
 #include "barock/shell/xdg_toplevel.hpp"
 #include "barock/shell/xdg_wm_base.hpp"
 
 #include "../log.hpp"
+#include "jsl/optional.hpp"
 #include <wayland-server-core.h>
 #include <wayland-server-protocol.h>
 
@@ -73,7 +75,13 @@ xdg_surface_get_toplevel(wl_client *client, wl_resource *xdg_surface, uint32_t i
 
 void
 xdg_surface_ack_configure(wl_client *, wl_resource *surface, uint32_t id) {
-  INFO("xdg_surface::ack_configure");
+  // INFO("xdg_surface::ack_configure");
+  auto xdg_surface = from_wl_resource<xdg_surface_t>(surface);
+
+  if (id == xdg_surface->pending.serial) {
+    xdg_surface->size = xdg_surface->pending.size;
+    xdg_surface->pending.serial.invalidate();
+  }
 }
 
 void

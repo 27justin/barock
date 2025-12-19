@@ -266,6 +266,7 @@ wl_surface_attach(wl_client   *client,
   if (wl_buffer == nullptr) {
     TRACE("wl_surface#attach: removing buffer from wl_surface");
     surface->staging.buffer = nullptr;
+    surface->state.buffer   = nullptr;
     return;
   }
 

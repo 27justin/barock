@@ -36,6 +36,11 @@ namespace barock {
     output_t *output;
 
     struct {
+      jsl::optional_t<uint32_t> serial;
+      fpoint_t                  size;
+    } pending;
+
+    struct {
       signal_t<void> on_geometry_change;
     } events;
 

@@ -309,14 +309,6 @@ gl_renderer_t::draw(surface_t &surface, const fpoint_t &screen_position) {
     glDeleteTextures(1, &texture);
     GL_CHECK;
 
-    for (auto &subsurface_dao : surface.state.children) {
-      if (auto subsurface = subsurface_dao->surface.lock(); subsurface) {
-        draw(*subsurface,
-             { screen_position.x + subsurface_dao->position.x,
-               screen_position.y + subsurface_dao->position.y });
-      }
-    }
-
     // Send the frame callback, and release the buffer back to the
     // client.
     if (surface.state.pending) {
@@ -324,6 +316,14 @@ gl_renderer_t::draw(surface_t &surface, const fpoint_t &screen_position) {
       wl_resource_destroy(surface.state.pending);
       wl_buffer_send_release(surface.state.buffer->resource());
       surface.state.pending = nullptr;
+    }
+  }
+
+  for (auto &subsurface_dao : surface.state.children) {
+    if (auto subsurface = subsurface_dao->surface.lock(); subsurface) {
+      draw(*subsurface,
+           { screen_position.x + subsurface_dao->position.x,
+             screen_position.y + subsurface_dao->position.y });
     }
   }
 }
