@@ -45,16 +45,36 @@ namespace barock {
 
   ipoint_t
   surface_t::full_extent() const {
-    ipoint_t region = extent();
+    // Calculate the full extent of our surface, factoring in
+    // subsurfaces with negative offsets.
+    int min_x = 0, min_y = 0;
+    int max_x = extent().x, max_y = extent().y;
 
-    for (auto &child : state.children) {
-      if (auto subsurface = child->surface.lock()) {
-        auto child_extent = subsurface->full_extent();
-        region.x          = std::max(region.x, child_extent.x + child->position.x);
-        region.y          = std::max(region.y, child_extent.y + child->position.y);
+    std::function<void(const surface_t &, int, int)> grow_bounds;
+    grow_bounds = [&](const surface_t &surface, int offset_x, int offset_y) {
+      for (auto &child : surface.state.children) {
+        if (auto sub = child->surface.lock()) {
+          // Absolute position of this child relative to our original
+          // root
+          int abs_x = offset_x + child->position.x;
+          int abs_y = offset_y + child->position.y;
+
+          // Current child's local buffer dimensions
+          ipoint_t e = sub->extent();
+
+          min_x = std::min(min_x, abs_x);
+          min_y = std::min(min_y, abs_y);
+          max_x = std::max(max_x, abs_x + e.x);
+          max_y = std::max(max_y, abs_y + e.y);
+
+          // Recurse into children of this subsurface
+          grow_bounds(*sub, abs_x, abs_y);
+        }
       }
-    }
-    return region;
+    };
+
+    grow_bounds(*this, 0, 0);
+    return { max_x - min_x, max_y - min_y };
   }
 
   bool

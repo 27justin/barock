@@ -88,6 +88,7 @@ namespace barock {
         //   continue;
         // }
 
+        // Subtract our offset for client side decoration
         auto position = output.to<output_t::eWorkspace, output_t::eScreenspace>(
           xdg_surface->position - xdg_surface->offset);
 
@@ -159,7 +160,10 @@ namespace barock {
     auto &windows = output.metadata.get<xdg_window_list_t>();
 
     for (auto it = windows.begin(); it != windows.end(); ++it) {
-      if (position >= (*it)->position && position < ((*it)->position + (*it)->size)) {
+      auto window_position = (*it)->position;
+      window_position += (*it)->offset;
+      auto dimensions = (*it)->surface.lock()->full_extent();
+      if (position >= window_position && position < (window_position + dimensions)) {
         return shared_cast<resource_t<xdg_surface_t>>(*it);
       }
     }
@@ -280,8 +284,9 @@ xdg_wm_base_get_xdg_surface(wl_client   *client,
     }
 
     if (output.valid() == true) {
-      output->damage(region_t{ (int)position.x, (int)position.y, region.w, region.h });
-      TRACE("Added damage onto output {}", output->connector().name());
+      // output->damage(region_t{ (int)position.x, (int)position.y, region.w, region.h });
+      output->force_render();
+      // TRACE("Added damage onto output {}", output->connector().name());
     } else {
       ERROR("Got damage event on surface that isn't being displayed on any output.");
     }

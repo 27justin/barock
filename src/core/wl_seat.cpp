@@ -400,11 +400,10 @@ wl_seat_t::on_keyboard_input(keyboard_event_t event) {
 shared_t<resource_t<surface_t>>
 wl_seat_t::find_best_surface(fpoint_t point) const {
   // Find the best surface for the position at `cursor'.
-
-  // First get the window list on the active output.
   auto xdg_window = registry.xdg_shell->by_position(registry.cursor->current_output(), point);
-  if (!xdg_window)
+  if (!xdg_window) {
     return nullptr;
+  }
 
   shared_t<resource_t<surface_t>> result{ nullptr };
 
@@ -469,6 +468,23 @@ wl_seat_t::on_mouse_click(mouse_button_t event) {
   return signal_action_t::eOk;
 }
 
+void
+dump_tree(surface_t &surface, int indent = 2) {
+  std::string indent_str;
+  for (int i = 0; i < indent; ++i) {
+    indent_str.push_back(' ');
+  }
+
+  if (surface.state.subsurface)
+    std::cout << indent_str << surface.state.subsurface->position.x << ", "
+              << surface.state.subsurface->position.y << " (" << surface.extent().x << "x"
+              << surface.extent().y << ")\n";
+
+  for (auto child : surface.state.children) {
+    dump_tree(*child->surface.lock(), indent + 2);
+  }
+}
+
 signal_action_t
 wl_seat_t::on_mouse_move(mouse_event_t event) {
   auto &input          = *registry.input;
@@ -486,11 +502,11 @@ start:
 
     // Determine the workspace-local position & size of `root' (the window)
     fpoint_t workspace_position = get_workspace_position(root);
-    ipoint_t dimensions         = get_surface_dimensions(root);
+    ipoint_t dimensions         = root.full_extent();
     ipoint_t offset             = get_surface_offset(root);
 
     // Make our mouse position relative to `root'
-    fpoint_t mouse_local_position = registry.cursor->position() - workspace_position;
+    fpoint_t mouse_local_position = (registry.cursor->position() - workspace_position);
 
     // Then check if the local coordinates are past the window
     // dimensions

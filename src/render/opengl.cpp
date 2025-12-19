@@ -301,8 +301,7 @@ gl_renderer_t::draw(surface_t &surface, const fpoint_t &screen_position) {
     GL_CHECK;
 
     quad_shader.uniform("u_surface_position", screen_position.x, screen_position.y);
-    quad_shader.uniform(
-      "u_surface_size", surface.state.buffer->width, surface.state.buffer->height);
+    quad_shader.uniform("u_surface_size", surface.extent().x, surface.extent().y);
     quad_shader.uniform("u_screen_size", mode_.width(), mode_.height());
 
     quad(quad_shader, texture);

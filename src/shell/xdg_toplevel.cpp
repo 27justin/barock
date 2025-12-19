@@ -2,10 +2,15 @@
 #include "barock/core/signal.hpp"
 #include "barock/resource.hpp"
 
+#include "barock/compositor.hpp"
 #include "barock/core/shm_pool.hpp"
+#include "barock/singleton.hpp"
 
 #include "barock/shell/xdg_toplevel.hpp"
 #include "barock/shell/xdg_wm_base.hpp"
+
+#include "barock/core/cursor_manager.hpp"
+#include "barock/core/wl_seat.hpp"
 
 #include <linux/input.h>
 #include <wayland-server-core.h>
@@ -144,65 +149,68 @@ xdg_toplevel_move(wl_client   *client,
                   wl_resource *wl_xdg_toplevel,
                   wl_resource *seat,
                   uint32_t     serial) {
-  // auto toplevel = from_wl_resource<xdg_toplevel_t>(wl_xdg_toplevel);
+  auto toplevel = from_wl_resource<xdg_toplevel_t>(wl_xdg_toplevel);
 
-  // shared_t<resource_t<xdg_surface_t>> xdg_surface;
-  // if (xdg_surface = toplevel->xdg_surface.lock(); !xdg_surface) {
-  //   ERROR("xdg_toplevel wants to be moved, but attached xdg_surface is not valid!");
-  //   return;
-  // }
+  shared_t<resource_t<xdg_surface_t>> xdg_surface;
+  if (xdg_surface = toplevel->xdg_surface.lock(); !xdg_surface) {
+    ERROR("xdg_toplevel wants to be moved, but attached xdg_surface is not valid!");
+    return;
+  }
 
-  // shared_t<resource_t<surface_t>> wl_surface;
-  // if (wl_surface = xdg_surface->surface.lock(); !wl_surface) {
-  //   ERROR("xdg_toplevel wants to be moved, but attached wl_surface is not valid!");
-  //   return;
-  // }
+  struct _data {
+    signal_token_t                      on_mouse_move, on_mouse_click;
+    double                              start_x{}, start_y{};
+    int32_t                             win_x{}, win_y{};
+    shared_t<resource_t<xdg_surface_t>> surface;
+  };
+  auto state = shared_t(new _data{});
 
-  // auto compositor = wl_surface->compositor;
+  auto &cursor_manager = singleton_t<compositor_t>::get().registry_.cursor;
+  auto &seat_manager   = singleton_t<compositor_t>::get().registry_.seat;
+  auto &input_manager  = singleton_t<compositor_t>::get().registry_.input;
 
-  // struct _data {
-  //   signal_token_t on_mouse_move, on_mouse_click;
-  //   double         start_x{}, start_y{};
-  //   int32_t        win_x{}, win_y{};
-  // };
-  // auto subscriptions     = shared_t(new _data{});
-  // subscriptions->start_x = compositor->cursor.x;
-  // subscriptions->start_y = compositor->cursor.y;
-  // subscriptions->win_x   = wl_surface->x;
-  // subscriptions->win_y   = wl_surface->y;
+  state->start_x = cursor_manager->position().x;
+  state->start_y = cursor_manager->position().y;
+  state->win_x   = xdg_surface->position.x;
+  state->win_y   = xdg_surface->position.y;
+  state->surface = xdg_surface;
 
-  // // If triggered, the surface will lose the focus of the device
-  // // (wl_pointer, wl_touch, etc) used for the move. It is up to
-  // // the compositor to visually indicate that the move is taking
-  // // place, such as updating a pointer cursor, during the
-  // // move. There is no guarantee that the device focus will return
-  // // when the move is completed.
-  // compositor->pointer.set_focus(nullptr);
-  // compositor->keyboard.set_focus(nullptr);
+  // If triggered, the surface will lose the focus of the device
+  // (wl_pointer, wl_touch, etc) used for the move. It is up to
+  // the compositor to visually indicate that the move is taking
+  // place, such as updating a pointer cursor, during the
+  // move. There is no guarantee that the device focus will return
+  // when the move is completed.
+  seat_manager->set_keyboard_focus(nullptr);
+  seat_manager->set_mouse_focus(nullptr);
 
-  // subscriptions->on_mouse_move = compositor->input->on_mouse_move.connect(
-  //   [toplevel, compositor, subscriptions, wl_surface](const auto &event) mutable {
-  //     // This is guaranteed to be processed after the compositor
-  //     // itself used this event to set the cursor struct, therefore
-  //     // we can just move according to the compositor cursor
-  //     double dx = compositor->cursor.x - subscriptions->start_x;
-  //     double dy = compositor->cursor.y - subscriptions->start_y;
+  state->on_mouse_move = input_manager->on_mouse_move.connect(
+    [&cursor_manager, toplevel, state](const auto &event) mutable {
+      // This is guaranteed to be processed after the compositor
+      // itself used this event to set the cursor struct, therefore
+      // we can just move according to the compositor cursor
+      double dx = cursor_manager->position().x - state->start_x;
+      double dy = cursor_manager->position().y - state->start_y;
 
-  //     wl_surface->x = subscriptions->win_x + static_cast<int>(dx);
-  //     wl_surface->y = subscriptions->win_y + static_cast<int>(dy);
-  //   });
+      state->surface->position.x = state->win_x + static_cast<int>(dx);
+      state->surface->position.y = state->win_y + static_cast<int>(dy);
+      return signal_action_t::eOk;
+    });
 
-  // subscriptions->on_mouse_click = compositor->input->on_mouse_click.connect(
-  //   [compositor, subscriptions, wl_surface](const auto &event) {
-  //     // Left mouse released
-  //     if (event.button == BTN_LEFT && event.state == 0) {
-  //       // Refocus the surface
-  //       compositor->pointer.set_focus(wl_surface);
+  state->on_mouse_click = input_manager->on_mouse_click.connect(
+    [&input_manager, &seat_manager, state](const auto &event) {
+      // Left mouse released
+      if (event.button == BTN_LEFT && event.state == 0) {
+        // Refocus the surface
+        seat_manager->set_mouse_focus(state->surface->surface.lock());
+        seat_manager->set_keyboard_focus(state->surface->surface.lock());
 
-  //       compositor->input->on_mouse_move.disconnect(subscriptions->on_mouse_move);
-  //       compositor->input->on_mouse_button.disconnect(subscriptions->on_mouse_button);
-  //     }
-  //   });
+        input_manager->on_mouse_move.disconnect(state->on_mouse_move);
+        input_manager->on_mouse_click.disconnect(state->on_mouse_click);
+        return signal_action_t::eDelete;
+      }
+      return signal_action_t::eOk;
+    });
 }
 
 void
@@ -211,106 +219,110 @@ xdg_toplevel_resize(wl_client   *client,
                     wl_resource *seat,
                     uint32_t     serial,
                     uint32_t     edges) {
-  // auto toplevel = from_wl_resource<xdg_toplevel_t>(wl_xdg_toplevel);
+  auto toplevel = from_wl_resource<xdg_toplevel_t>(wl_xdg_toplevel);
 
-  // WARN("xdg_toplevel#resize");
+  WARN("xdg_toplevel#resize");
 
-  // shared_t<resource_t<xdg_surface_t>> xdg_surface;
-  // if (xdg_surface = toplevel->xdg_surface.lock(); !xdg_surface) {
-  //   ERROR("xdg_toplevel wants to be resized, but attached xdg_surface is not valid!");
-  //   return;
-  // }
+  shared_t<resource_t<xdg_surface_t>> xdg_surface;
+  if (xdg_surface = toplevel->xdg_surface.lock(); !xdg_surface) {
+    ERROR("xdg_toplevel wants to be resized, but attached xdg_surface is not valid!");
+    return;
+  }
 
-  // shared_t<resource_t<surface_t>> wl_surface;
-  // if (wl_surface = xdg_surface->surface.lock(); !wl_surface) {
-  //   ERROR("xdg_toplevel wants to be resized, but attached wl_surface is not valid!");
-  //   return;
-  // }
+  shared_t<resource_t<surface_t>> wl_surface;
+  if (wl_surface = xdg_surface->surface.lock(); !wl_surface) {
+    ERROR("xdg_toplevel wants to be resized, but attached wl_surface is not valid!");
+    return;
+  }
 
-  // auto compositor = wl_surface->compositor;
+  auto &cursor_manager = singleton_t<compositor_t>::get().registry_.cursor;
+  auto &seat_manager   = singleton_t<compositor_t>::get().registry_.seat;
+  auto &input_manager  = singleton_t<compositor_t>::get().registry_.input;
 
-  // struct _data {
-  //   signal_token_t    on_mouse_move, on_mouse_button;
-  //   double            start_x{}, start_y{};
-  //   int32_t           win_x{}, win_y{}, win_w{}, win_h{};
-  //   uint32_t          edges{};
-  //   std::atomic<bool> active{ true };
-  // };
+  struct _data {
+    signal_token_t    on_mouse_move, on_mouse_button;
+    double            start_x{}, start_y{};
+    int32_t           win_x{}, win_y{}, win_w{}, win_h{};
+    uint32_t          edges{};
+    std::atomic<bool> active{ true };
+  };
 
-  // auto subscriptions     = shared_t(new _data{});
-  // subscriptions->start_x = compositor->cursor.x;
-  // subscriptions->start_y = compositor->cursor.y;
-  // subscriptions->win_x   = wl_surface->x;
-  // subscriptions->win_y   = wl_surface->y;
-  // subscriptions->win_w   = toplevel->data.width;
-  // subscriptions->win_h   = toplevel->data.height;
-  // subscriptions->edges   = edges;
+  auto state     = shared_t(new _data{});
+  state->start_x = cursor_manager->position().x;
+  state->start_y = cursor_manager->position().y;
+  state->win_x   = xdg_surface->position.x;
+  state->win_y   = xdg_surface->position.y;
+  state->win_w   = xdg_surface->size.x;
+  state->win_h   = xdg_surface->size.y;
+  state->edges   = edges;
 
-  // // Same behavior as move: lose focus
-  // compositor->pointer.set_focus(nullptr);
-  // compositor->keyboard.set_focus(nullptr);
+  // Same behavior as move: lose focus
+  seat_manager->set_mouse_focus(nullptr);
+  seat_manager->set_keyboard_focus(nullptr);
 
-  // subscriptions->on_mouse_move = compositor->input->on_mouse_move.connect(
-  //   [wl_surface, toplevel, wl_xdg_toplevel, compositor, subscriptions, xdg_surface](
-  //     const auto &event) mutable {
-  //     if (!subscriptions->active.load())
-  //       return;
+  state->on_mouse_move = input_manager->on_mouse_move.connect(
+    [&cursor_manager, wl_surface, toplevel, wl_xdg_toplevel, state, xdg_surface](
+      const auto &event) mutable {
+      if (!state->active.load())
+        return signal_action_t::eDelete;
 
-  //     double dx = compositor->cursor.x - subscriptions->start_x;
-  //     double dy = compositor->cursor.y - subscriptions->start_y;
+      double dx = cursor_manager->position().x - state->start_x;
+      double dy = cursor_manager->position().y - state->start_y;
 
-  //     int32_t new_x = subscriptions->win_x;
-  //     int32_t new_y = subscriptions->win_y;
-  //     int32_t new_w = subscriptions->win_w;
-  //     int32_t new_h = subscriptions->win_h;
+      int32_t new_x = state->win_x;
+      int32_t new_y = state->win_y;
+      int32_t new_w = state->win_w;
+      int32_t new_h = state->win_h;
 
-  //     // Adjust horizontal size and/or position
-  //     if (subscriptions->edges & XDG_TOPLEVEL_RESIZE_EDGE_LEFT) {
-  //       new_x += static_cast<int>(dx);
-  //       new_w -= static_cast<int>(dx);
-  //     } else if (subscriptions->edges & XDG_TOPLEVEL_RESIZE_EDGE_RIGHT) {
-  //       new_w += static_cast<int>(dx);
-  //     }
+      // Adjust horizontal size and/or position
+      if (state->edges & XDG_TOPLEVEL_RESIZE_EDGE_LEFT) {
+        new_x += static_cast<int>(dx);
+        new_w -= static_cast<int>(dx);
+      } else if (state->edges & XDG_TOPLEVEL_RESIZE_EDGE_RIGHT) {
+        new_w += static_cast<int>(dx);
+      }
 
-  //     // Adjust vertical size and/or position
-  //     if (subscriptions->edges & XDG_TOPLEVEL_RESIZE_EDGE_TOP) {
-  //       new_y += static_cast<int>(dy);
-  //       new_h -= static_cast<int>(dy);
-  //     } else if (subscriptions->edges & XDG_TOPLEVEL_RESIZE_EDGE_BOTTOM) {
-  //       new_h += static_cast<int>(dy);
-  //     }
+      // Adjust vertical size and/or position
+      if (state->edges & XDG_TOPLEVEL_RESIZE_EDGE_TOP) {
+        new_y += static_cast<int>(dy);
+        new_h -= static_cast<int>(dy);
+      } else if (state->edges & XDG_TOPLEVEL_RESIZE_EDGE_BOTTOM) {
+        new_h += static_cast<int>(dy);
+      }
 
-  //     // Enforce minimum size constraints
-  //     new_w = std::max(1, new_w);
-  //     new_h = std::max(1, new_h);
+      // Enforce minimum size constraints
+      new_w = std::max(1, new_w);
+      new_h = std::max(1, new_h);
 
-  //     wl_surface->x         = new_x;
-  //     wl_surface->y         = new_y;
-  //     toplevel->data.width  = new_w;
-  //     toplevel->data.height = new_h;
+      xdg_surface->position.x = new_x;
+      xdg_surface->position.y = new_y;
+      xdg_surface->size.x     = new_w;
+      xdg_surface->size.y     = new_h;
 
-  //     // Send configure event
-  //     wl_array state;
-  //     wl_array_init(&state);
-  //     *reinterpret_cast<xdg_toplevel_state *>(wl_array_add(&state, sizeof(xdg_toplevel_state))) =
-  //       XDG_TOPLEVEL_STATE_RESIZING;
-  //     xdg_toplevel_send_configure(wl_xdg_toplevel, new_w, new_h, &state);
-  //     wl_array_release(&state);
+      // Send configure event
+      wl_array state;
+      wl_array_init(&state);
+      *reinterpret_cast<xdg_toplevel_state *>(wl_array_add(&state, sizeof(xdg_toplevel_state))) =
+        XDG_TOPLEVEL_STATE_RESIZING;
+      xdg_toplevel_send_configure(wl_xdg_toplevel, new_w, new_h, &state);
+      wl_array_release(&state);
 
-  //     // Required: otherwise the client won't actually resize
-  //     //
-  //     // ... This configure event asks the client to resize its
-  //     // toplevel surface or to change its state. The configured state
-  //     // should not be applied immediately. See xdg_surface.configure
-  //     // for details.
-  //     xdg_surface_send_configure(xdg_surface->resource(),
-  //                                wl_display_next_serial(xdg_surface->shell.compositor.display()));
-  //   });
+      // Required: otherwise the client won't actually resize
+      //
+      // ... This configure event asks the client to resize its
+      // toplevel surface or to change its state. The configured state
+      // should not be applied immediately. See xdg_surface.configure
+      // for details.
+      xdg_surface_send_configure(
+        xdg_surface->resource(),
+        wl_display_next_serial(singleton_t<compositor_t>::get().display()));
+      return signal_action_t::eOk;
+    });
 
-  // subscriptions->on_mouse_button = compositor->input->on_mouse_button.connect(
-  //   [compositor, subscriptions, toplevel, wl_surface, xdg_surface](const auto &event) mutable {
+  // state->on_mouse_button = compositor->input->on_mouse_button.connect(
+  //   [compositor, state, toplevel, wl_surface, xdg_surface](const auto &event) mutable {
   //     if (event.button == BTN_LEFT && event.state == 0) {
-  //       subscriptions->active.store(false);
+  //       state->active.store(false);
 
   //       wl_array state;
   //       wl_array_init(&state);
@@ -327,8 +339,8 @@ xdg_toplevel_resize(wl_client   *client,
   //       // Refocus the surface
   //       compositor->pointer.set_focus(wl_surface);
 
-  //       compositor->input->on_mouse_move.disconnect(subscriptions->on_mouse_move);
-  //       compositor->input->on_mouse_button.disconnect(subscriptions->on_mouse_button);
+  //       compositor->input->on_mouse_move.disconnect(state->on_mouse_move);
+  //       compositor->input->on_mouse_button.disconnect(state->on_mouse_button);
   //     }
   //   });
 }
