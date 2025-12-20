@@ -161,8 +161,7 @@ namespace barock {
 
     for (auto it = windows.begin(); it != windows.end(); ++it) {
       auto window_position = (*it)->position;
-      window_position += (*it)->offset;
-      auto dimensions = (*it)->surface.lock()->full_extent();
+      auto dimensions      = (*it)->surface.lock()->full_extent();
       if (position >= window_position && position < (window_position + dimensions)) {
         return shared_cast<resource_t<xdg_surface_t>>(*it);
       }
